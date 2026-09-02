@@ -15,6 +15,7 @@ const VIRTUAL_FS_TYPES = new Set([
   'pstore',
   'bpf',
   'autofs',
+  'efivarfs',
 ]);
 
 // Parses `nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits`

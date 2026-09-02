@@ -27,6 +27,7 @@ test('parseDf parses df -kPT output, skips virtual filesystems, flags alert thre
     'Filesystem     Type     1024-blocks      Used Available Capacity Mounted on',
     '/dev/sda1      ext4       524288000 471859200  52428800      90% /',
     'tmpfs          tmpfs        8192000         0   8192000       0% /dev/shm',
+    'efivarfs       efivarfs          304       213         87      72% /sys/firmware/efi/efivars',
     '/dev/sdb1      xfs       1048576000 524288000 524288000      50% /data',
     '',
   ].join('\n');
