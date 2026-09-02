@@ -60,17 +60,19 @@ function renderSidebar() {
   }
 }
 
+const GRAPH_WIDTH = 280;
+const GRAPH_HEIGHT = 140;
+const GRAPH_AXIS_TICKS = [100, 75, 50, 25, 0];
+
 function renderGpuGraphCard(gpu, series) {
-  const width = 280;
-  const height = 90;
   const windowMs = 5 * 60 * 1000;
   const now = series.length ? series[series.length - 1].timestamp : Date.now();
 
   const linePoints = (key) =>
     series
       .map((p) => {
-        const x = width - ((now - p.timestamp) / windowMs) * width;
-        const y = height - (p[key] / 100) * height;
+        const x = GRAPH_WIDTH - ((now - p.timestamp) / windowMs) * GRAPH_WIDTH;
+        const y = GRAPH_HEIGHT - (p[key] / 100) * GRAPH_HEIGHT;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(' ');
@@ -82,10 +84,13 @@ function renderGpuGraphCard(gpu, series) {
         <span class="legend util">util %</span>
         <span class="legend mem">mem %</span>
       </div>
-      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-        <polyline class="line-util" points="${linePoints('utilization')}" />
-        <polyline class="line-mem" points="${linePoints('memoryPercent')}" />
-      </svg>
+      <div class="graph-body">
+        <div class="axis-labels">${GRAPH_AXIS_TICKS.map((t) => `<span>${t}</span>`).join('')}</div>
+        <svg viewBox="0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}" preserveAspectRatio="none">
+          <polyline class="line-util" points="${linePoints('utilization')}" />
+          <polyline class="line-mem" points="${linePoints('memoryPercent')}" />
+        </svg>
+      </div>
     </div>`;
 }
 
@@ -100,7 +105,7 @@ function renderGpuListCard(state) {
         .map(
           (g) => `
         <div class="gpu-list-row">
-          <span class="gpu-list-name">${escapeHtml(g.name || `GPU ${g.id}`)}</span>
+          <span class="gpu-list-name">GPU ${g.id}</span>
           <span class="gpu-list-stats">${g.utilization}% &middot; ${fmtMib(g.memory.used)}/${fmtMib(g.memory.total)} &middot; ${g.temperature}&deg;C</span>
         </div>`
         )
@@ -189,11 +194,11 @@ function renderMain() {
     </div>
     <div id="content-grid">
       <section id="gpu-graphs">${renderGpuGraphs(state)}</section>
-      <aside id="info-column">
+      <section id="info-cards">
         ${renderGpuListCard(state)}
         ${renderDockerCard(state)}
         ${renderDiskCard(state)}
-      </aside>
+      </section>
     </div>
   `;
 }

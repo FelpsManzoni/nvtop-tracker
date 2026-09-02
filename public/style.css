@@ -40,24 +40,41 @@ body {
 .main-header h2 { margin: 0; }
 .main-header .status { color: #aaa; font-size: 13px; }
 
-#content-grid { display: flex; gap: 20px; align-items: flex-start; }
+/* Content stacks vertically: GPU graphs (full width) on top, info cards below.
+   Both rows use the same auto-fill/minmax pattern so cards reorganize into as
+   many columns as fit, capped to a max width, instead of stretching edge to edge. */
+#content-grid { display: flex; flex-direction: column; gap: 20px; }
 
 #gpu-graphs {
-  flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 380px));
   gap: 12px;
 }
 .gpu-graph-card { background: #1c1f26; border-radius: 6px; padding: 10px; }
-.gpu-graph-card svg { width: 100%; height: 90px; display: block; }
 .gpu-graph-title { font-size: 12px; color: #ccc; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
 .gpu-graph-title .legend { font-size: 11px; }
 .gpu-graph-title .legend.util { color: #3ecf5c; }
 .gpu-graph-title .legend.mem { color: #e0a458; }
+.graph-body { display: flex; gap: 6px; }
+.axis-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 24px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #666;
+  text-align: right;
+}
+.gpu-graph-card svg { flex: 1; width: 100%; height: 140px; display: block; }
 .line-util { fill: none; stroke: #3ecf5c; stroke-width: 2; }
 .line-mem { fill: none; stroke: #e0a458; stroke-width: 2; }
 
-#info-column { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; }
+#info-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 380px));
+  gap: 16px;
+}
 
 .card { background: #1c1f26; border-radius: 6px; padding: 14px; }
 .card h3 { font-size: 12px; text-transform: uppercase; color: #888; margin: 0 0 10px; }
