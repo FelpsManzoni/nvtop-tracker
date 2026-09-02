@@ -9,10 +9,17 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Disk sizes come from `df -kPT` in 1024-byte blocks (KB).
 function fmtBytes(kb) {
   const mb = kb / 1024;
   if (mb < 1024) return `${mb.toFixed(0)} MB`;
   return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+// GPU memory comes from nvidia-smi already in MiB -- do not run through fmtBytes (KB-based).
+function fmtMib(mib) {
+  if (mib < 1024) return `${mib} MB`;
+  return `${(mib / 1024).toFixed(1)} GB`;
 }
 
 function avgGpuUtilization(state) {
@@ -53,23 +60,115 @@ function renderSidebar() {
   }
 }
 
-function renderGpuGraph(history) {
-  const width = 600;
-  const height = 160;
-  if (!history.length) return `<svg id="gpu-graph" viewBox="0 0 ${width} ${height}"></svg>`;
-
-  const now = history[history.length - 1].timestamp;
+function renderGpuGraphCard(gpu, series) {
+  const width = 280;
+  const height = 90;
   const windowMs = 5 * 60 * 1000;
-  const points = history.map((p) => {
-    const x = width - ((now - p.timestamp) / windowMs) * width;
-    const y = height - (p.avgUtilization / 100) * height;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
+  const now = series.length ? series[series.length - 1].timestamp : Date.now();
+
+  const linePoints = (key) =>
+    series
+      .map((p) => {
+        const x = width - ((now - p.timestamp) / windowMs) * width;
+        const y = height - (p[key] / 100) * height;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(' ');
 
   return `
-    <svg id="gpu-graph" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-      <polyline points="${points.join(' ')}" fill="none" stroke="#3ecf5c" stroke-width="2" />
-    </svg>`;
+    <div class="gpu-graph-card">
+      <div class="gpu-graph-title">
+        GPU ${gpu.id}
+        <span class="legend util">util %</span>
+        <span class="legend mem">mem %</span>
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+        <polyline class="line-util" points="${linePoints('utilization')}" />
+        <polyline class="line-mem" points="${linePoints('memoryPercent')}" />
+      </svg>
+    </div>`;
+}
+
+function renderGpuGraphs(state) {
+  if (!state.gpu.length) return '<div class="empty">No GPU data</div>';
+  return state.gpu.map((g) => renderGpuGraphCard(g, (state.historyByGpu && state.historyByGpu[g.id]) || [])).join('');
+}
+
+function renderGpuListCard(state) {
+  const rows = state.gpu.length
+    ? state.gpu
+        .map(
+          (g) => `
+        <div class="gpu-list-row">
+          <span class="gpu-list-name">${escapeHtml(g.name || `GPU ${g.id}`)}</span>
+          <span class="gpu-list-stats">${g.utilization}% &middot; ${fmtMib(g.memory.used)}/${fmtMib(g.memory.total)} &middot; ${g.temperature}&deg;C</span>
+        </div>`
+        )
+        .join('')
+    : '<div class="empty">No GPU data</div>';
+  return `<div class="card"><h3>GPUs</h3>${rows}</div>`;
+}
+
+function renderDockerCard(state) {
+  const docker = state.docker || { containers: [], images: [] };
+  const containerRows = docker.containers.length
+    ? docker.containers
+        .map(
+          (c) => `
+        <div class="docker-row">
+          <span class="badge online"></span>
+          <span class="docker-name">${escapeHtml(c.name)}</span>
+          <span class="docker-status">${escapeHtml(c.status)}</span>
+        </div>`
+        )
+        .join('')
+    : '<div class="empty">No running containers</div>';
+
+  const processes = state.gpuProcesses || [];
+  const processRows = processes.length
+    ? processes
+        .map(
+          (p) => `
+        <div class="process-row">
+          <span class="process-gpu">GPU ${p.gpuId}</span>
+          <span class="process-name" title="${escapeHtml(p.fullCommand)}">${escapeHtml(p.process)}</span>
+          <span class="process-mem">${fmtMib(p.memoryUsedMb)}</span>
+        </div>`
+        )
+        .join('')
+    : '<div class="empty">No GPU processes</div>';
+
+  return `
+    <div class="card">
+      <h3>Docker</h3>
+      ${containerRows}
+      <h3>GPU Processes</h3>
+      ${processRows}
+    </div>`;
+}
+
+function renderDiskCard(state) {
+  const anyDiskAlert = state.disk.some((d) => d.alert);
+  const diskRows = state.disk.length
+    ? state.disk
+        .map(
+          (d) => `
+        <div class="disk-row">
+          <div class="label">
+            <span>${escapeHtml(d.mountpoint)}</span>
+            <span>${fmtBytes(d.used)} / ${fmtBytes(d.total)} &middot; ${d.usagePercent}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill ${d.alert ? 'alert' : ''}" style="width:${d.usagePercent}%"></div></div>
+        </div>`
+        )
+        .join('')
+    : '<div class="empty">No disk data</div>';
+
+  return `
+    <div class="card">
+      <h3>Disk ${anyDiskAlert ? '<span class="alert-badge">ALERT</span>' : ''}</h3>
+      ${diskRows}
+    </div>`;
 }
 
 function renderMain() {
@@ -79,60 +178,23 @@ function renderMain() {
   }
   const state = servers.get(focused);
   const lastUpdated = new Date(state.timestamp).toLocaleTimeString();
-  const anyDiskAlert = state.disk.some((d) => d.alert);
-
-  const gpuRows = state.gpu.length
-    ? state.gpu
-        .map(
-          (g) => `
-        <tr>
-          <td>GPU ${g.id}</td>
-          <td>${g.utilization}%</td>
-          <td>${fmtBytes(g.memory.used)} / ${fmtBytes(g.memory.total)}</td>
-          <td>${g.temperature}&deg;C</td>
-        </tr>`
-        )
-        .join('')
-    : '<tr><td colspan="4">No GPU data</td></tr>';
-
   const trends = state.trends || {};
   const fmtPct = (v) => (v === null || v === undefined ? '—' : `${Math.round(v)}%`);
-
-  const diskRows = state.disk.length
-    ? state.disk
-        .map(
-          (d) => `
-        <div class="disk-row">
-          <div class="label">
-            <span>${escapeHtml(d.mountpoint)} (${escapeHtml(d.filesystem)})</span>
-            <span>${fmtBytes(d.used)} / ${fmtBytes(d.total)} &middot; ${d.usagePercent}%</span>
-          </div>
-          <div class="bar-track"><div class="bar-fill ${d.alert ? 'alert' : ''}" style="width:${d.usagePercent}%"></div></div>
-        </div>`
-        )
-        .join('')
-    : '<div>No disk data</div>';
 
   mainEl.innerHTML = `
     <div class="main-header">
       <h2>${escapeHtml(state.server)}</h2>
       <span class="status">${state.connected ? 'connected' : 'unreachable'} &middot; updated ${lastUpdated}</span>
-      ${anyDiskAlert ? '<span class="alert-badge">DISK ALERT</span>' : ''}
+      <span class="status">avg 1m: ${fmtPct(trends.gpuAvgUtilization1m)} &middot; avg 5m: ${fmtPct(trends.gpuAvgUtilization5m)} &middot; max 5m: ${fmtPct(trends.gpuMaxUtilization5m)}</span>
     </div>
-
-    <section>
-      <h3>GPU (avg 1m: ${fmtPct(trends.gpuAvgUtilization1m)} &middot; avg 5m: ${fmtPct(trends.gpuAvgUtilization5m)} &middot; max 5m: ${fmtPct(trends.gpuMaxUtilization5m)})</h3>
-      <table>
-        <thead><tr><th>GPU</th><th>Util</th><th>Memory</th><th>Temp</th></tr></thead>
-        <tbody>${gpuRows}</tbody>
-      </table>
-      ${renderGpuGraph(state.history || [])}
-    </section>
-
-    <section>
-      <h3>Disk</h3>
-      ${diskRows}
-    </section>
+    <div id="content-grid">
+      <section id="gpu-graphs">${renderGpuGraphs(state)}</section>
+      <aside id="info-column">
+        ${renderGpuListCard(state)}
+        ${renderDockerCard(state)}
+        ${renderDiskCard(state)}
+      </aside>
+    </div>
   `;
 }
 
