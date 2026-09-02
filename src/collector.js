@@ -1,7 +1,7 @@
 const EventEmitter = require('events');
 const { SSHManager } = require('./sshManager');
 const { RollingBuffer } = require('./rollingBuffer');
-const { parseGpuCsv, parseDf } = require('./parsers');
+const { parseGpuCsv, parseDf, parseDockerPs, parseDockerImages, parseGpuProcesses } = require('./parsers');
 
 function initialState(name) {
   return {
@@ -11,7 +11,9 @@ function initialState(name) {
     gpu: [],
     disk: [],
     trends: { gpuAvgUtilization1m: null, gpuAvgUtilization5m: null, gpuMaxUtilization5m: null },
-    history: [],
+    historyByGpu: {},
+    docker: { containers: [], images: [] },
+    gpuProcesses: [],
     error: null,
   };
 }
@@ -42,8 +44,10 @@ class Collector extends EventEmitter {
     for (const server of this.config.servers) {
       this._pollGpu(server);
       this._pollDisk(server);
+      this._pollStatus(server);
       this.timers.push(setInterval(() => this._pollGpu(server), this.config.gpuPollIntervalMs));
       this.timers.push(setInterval(() => this._pollDisk(server), this.config.diskPollIntervalMs));
+      this.timers.push(setInterval(() => this._pollStatus(server), this.config.diskPollIntervalMs));
     }
   }
 
@@ -66,7 +70,7 @@ class Collector extends EventEmitter {
         error: null,
         gpu: gpus,
         trends: buffer.getTrends(),
-        history: buffer.getHistory(),
+        historyByGpu: buffer.getHistoryByGpu(),
         timestamp: Date.now(),
       });
     } catch (err) {
@@ -87,6 +91,38 @@ class Collector extends EventEmitter {
       state.connected = false;
       state.error = err.message;
     }
+    state.timestamp = Date.now();
+    this.emit('update', { ...state });
+  }
+
+  // Docker + GPU process listings change slowly, so this rides the same interval as
+  // the disk poll instead of its own timer. Each check fails independently -- a
+  // missing `docker` binary shouldn't blank out the GPU process list or vice versa,
+  // and neither affects the server's overall `connected` status (GPU/disk polls own that).
+  async _pollStatus(server) {
+    const ssh = this.ssh.get(server.name);
+    const state = this.state.get(server.name);
+
+    try {
+      const [containersOut, imagesOut] = await Promise.all([
+        ssh.exec(this.config.dockerQueryCommand),
+        ssh.exec(this.config.dockerImagesQueryCommand),
+      ]);
+      state.docker = { containers: parseDockerPs(containersOut), images: parseDockerImages(imagesOut) };
+    } catch (err) {
+      state.docker = { containers: [], images: [], error: err.message };
+    }
+
+    try {
+      const [uuidOut, procOut] = await Promise.all([
+        ssh.exec(this.config.gpuUuidQueryCommand),
+        ssh.exec(this.config.gpuProcessesQueryCommand),
+      ]);
+      state.gpuProcesses = parseGpuProcesses(procOut, uuidOut);
+    } catch (err) {
+      state.gpuProcesses = [];
+    }
+
     state.timestamp = Date.now();
     this.emit('update', { ...state });
   }
