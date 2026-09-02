@@ -1,18 +1,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseGpuCsv, parseDf } = require('../src/parsers');
+const { parseGpuCsv, parseDf, parseDockerPs, parseDockerImages, parseGpuProcesses } = require('../src/parsers');
 
-test('parseGpuCsv parses nvidia-smi csv output', () => {
-  const output = '0, 85, 7500, 8000, 65\n1, 12, 400, 8000, 40\n';
+test('parseGpuCsv parses nvidia-smi csv output including GPU name', () => {
+  const output = '0, NVIDIA H200 NVL, 85, 7500, 8000, 65\n1, NVIDIA H200 NVL, 12, 400, 8000, 40\n';
   const gpus = parseGpuCsv(output);
   assert.deepEqual(gpus, [
-    { id: 0, utilization: 85, memory: { used: 7500, total: 8000 }, temperature: 65 },
-    { id: 1, utilization: 12, memory: { used: 400, total: 8000 }, temperature: 40 },
+    { id: 0, name: 'NVIDIA H200 NVL', utilization: 85, memory: { used: 7500, total: 8000 }, temperature: 65 },
+    { id: 1, name: 'NVIDIA H200 NVL', utilization: 12, memory: { used: 400, total: 8000 }, temperature: 40 },
   ]);
 });
 
 test('parseGpuCsv skips malformed lines instead of throwing', () => {
-  const output = '0, 85, 7500, 8000, 65\ngarbage line\n1, 12, 400, 8000, 40\n';
+  const output = '0, NVIDIA H200 NVL, 85, 7500, 8000, 65\ngarbage line\n1, NVIDIA H200 NVL, 12, 400, 8000, 40\n';
   const gpus = parseGpuCsv(output);
   assert.equal(gpus.length, 2);
   assert.equal(gpus[1].id, 1);
@@ -42,4 +42,48 @@ test('parseDf parses df -kPT output, skips virtual filesystems, flags alert thre
     alert: true,
   });
   assert.equal(volumes[1].alert, false);
+});
+
+test('parseDockerPs parses running containers only (docker ps, not -a)', () => {
+  const output = ['vla-manager-beat-1\tUp 7 days', 'mlflow-server\tUp 6 days (healthy)', ''].join('\n');
+  assert.deepEqual(parseDockerPs(output), [
+    { name: 'vla-manager-beat-1', status: 'Up 7 days' },
+    { name: 'mlflow-server', status: 'Up 6 days (healthy)' },
+  ]);
+});
+
+test('parseDockerPs returns empty array for empty output', () => {
+  assert.deepEqual(parseDockerPs(''), []);
+});
+
+test('parseDockerImages skips dangling <none>:<none> images', () => {
+  const output = [
+    'kitti-scs:h200\t13 days ago',
+    '<none>:<none>\t2 weeks ago',
+    'vla-train:latest\t1 day ago',
+    '',
+  ].join('\n');
+  assert.deepEqual(parseDockerImages(output), [
+    { repoTag: 'kitti-scs:h200', created: '13 days ago' },
+    { repoTag: 'vla-train:latest', created: '1 day ago' },
+  ]);
+});
+
+test('parseGpuProcesses joins compute-apps output with gpu_uuid->index mapping', () => {
+  const uuidOutput = ['0, GPU-aaaa', '1, GPU-bbbb', ''].join('\n');
+  const procOutput = [
+    'GPU-aaaa, 1016695, /data/venv/bin/python, 50956 MiB',
+    'GPU-bbbb, 3908334, /data/venv/bin/python3, 1832 MiB',
+    '',
+  ].join('\n');
+  assert.deepEqual(parseGpuProcesses(procOutput, uuidOutput), [
+    { gpuId: 0, pid: 1016695, process: 'python', fullCommand: '/data/venv/bin/python', memoryUsedMb: 50956 },
+    { gpuId: 1, pid: 3908334, process: 'python3', fullCommand: '/data/venv/bin/python3', memoryUsedMb: 1832 },
+  ]);
+});
+
+test('parseGpuProcesses skips processes whose GPU uuid is unknown', () => {
+  const uuidOutput = '0, GPU-aaaa\n';
+  const procOutput = 'GPU-unknown, 1, /bin/foo, 10 MiB\n';
+  assert.deepEqual(parseGpuProcesses(procOutput, uuidOutput), []);
 });
