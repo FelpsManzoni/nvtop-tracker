@@ -1,7 +1,7 @@
 {
   "servers": [
-    { "name": "GPU Server 1", "host": "gpu-server-1.local", "user": "myuser" },
-    { "name": "GPU Server 2", "host": "gpu-server-2.local", "user": "myuser" }
+    { "name": "GPU Server 1", "host": "gpu-server-1.local" },
+    { "name": "GPU Server 2", "host": "my-ssh-config-alias" }
   ],
   "port": 3000,
   "gpuPollIntervalMs": 2000,

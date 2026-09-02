@@ -2,65 +2,50 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SSHManager } = require('../src/sshManager');
 
-function fakeClient() {
-  return { exec() {}, end() {}, on() { return this; } };
-}
+test('SSHManager.exec resolves with stdout on success and marks connected', async () => {
+  const mgr = new SSHManager(
+    { host: 'h200' },
+    { maxAttempts: 3, retryDelayMs: 1, execFn: () => Promise.resolve('hello\n') }
+  );
+  const out = await mgr.exec('echo hello');
+  assert.equal(out, 'hello\n');
+  assert.equal(mgr.connected, true);
+});
 
-test('SSHManager retries connectFn up to maxAttempts then throws', async () => {
+test('SSHManager.exec retries up to maxAttempts then throws, marking disconnected', async () => {
   let calls = 0;
   const mgr = new SSHManager(
-    { host: 'h', user: 'u' },
+    { host: 'h200' },
     {
       maxAttempts: 3,
       retryDelayMs: 1,
-      connectFn: () => {
+      execFn: () => {
         calls += 1;
-        return Promise.reject(new Error('refused'));
+        return Promise.reject(new Error('unreachable'));
       },
     }
   );
-  await assert.rejects(() => mgr.ensureConnected(), /refused/);
+  await assert.rejects(() => mgr.exec('nvidia-smi'), /unreachable/);
   assert.equal(calls, 3);
   assert.equal(mgr.connected, false);
 });
 
-test('SSHManager succeeds once connectFn resolves, and reuses the connection', async () => {
+test('SSHManager.exec recovers on a later call after a prior failure', async () => {
   let calls = 0;
-  const client = fakeClient();
   const mgr = new SSHManager(
-    { host: 'h', user: 'u' },
-    {
-      maxAttempts: 3,
-      retryDelayMs: 1,
-      connectFn: () => {
-        calls += 1;
-        return Promise.resolve(client);
-      },
-    }
-  );
-  await mgr.ensureConnected();
-  await mgr.ensureConnected();
-  assert.equal(calls, 1);
-  assert.equal(mgr.connected, true);
-});
-
-test('SSHManager retries fresh (new attempt count) on next ensureConnected after failure', async () => {
-  let calls = 0;
-  const client = fakeClient();
-  const mgr = new SSHManager(
-    { host: 'h', user: 'u' },
+    { host: 'h200' },
     {
       maxAttempts: 2,
       retryDelayMs: 1,
-      connectFn: () => {
+      execFn: () => {
         calls += 1;
-        // fail the first "cycle" (2 attempts), succeed on the second cycle's first attempt
         if (calls <= 2) return Promise.reject(new Error('down'));
-        return Promise.resolve(client);
+        return Promise.resolve('ok');
       },
     }
   );
-  await assert.rejects(() => mgr.ensureConnected());
-  await mgr.ensureConnected();
+  await assert.rejects(() => mgr.exec('nvidia-smi'));
+  const out = await mgr.exec('nvidia-smi');
+  assert.equal(out, 'ok');
   assert.equal(mgr.connected, true);
 });
