@@ -18,6 +18,9 @@ const DEFAULTS = {
   gpuUuidQueryCommand: 'nvidia-smi --query-gpu=index,uuid --format=csv,noheader',
   gpuProcessesQueryCommand:
     'nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader',
+  // Mounts equal to (or nested under) one of these prefixes get a "top offending folder" scan.
+  diskTopFolderMountPrefixes: ['/data'],
+  duTimeoutSeconds: 25,
 };
 
 function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {

@@ -1,6 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseGpuCsv, parseDf, parseDockerPs, parseDockerImages, parseGpuProcesses } = require('../src/parsers');
+const {
+  parseGpuCsv,
+  parseDf,
+  parseDockerPs,
+  parseDockerImages,
+  parseGpuProcesses,
+  parseDuTopFolder,
+} = require('../src/parsers');
 
 test('parseGpuCsv parses nvidia-smi csv output including GPU name', () => {
   const output = '0, NVIDIA H200 NVL, 85, 7500, 8000, 65\n1, NVIDIA H200 NVL, 12, 400, 8000, 40\n';
@@ -43,10 +50,11 @@ test('parseDf parses df -kPT output, skips virtual filesystems, flags alert thre
   });
 });
 
-test('parseDf excludes the root filesystem regardless of usage', () => {
+test('parseDf excludes the root and /boot filesystems regardless of usage', () => {
   const output = [
     'Filesystem     Type     1024-blocks      Used Available Capacity Mounted on',
     '/dev/sda1      ext4       524288000 471859200  52428800      90% /',
+    '/dev/sda2      ext4         2000000    225000    1646000      13% /boot',
     '',
   ].join('\n');
   assert.deepEqual(parseDf(output, 85), []);
@@ -94,4 +102,25 @@ test('parseGpuProcesses skips processes whose GPU uuid is unknown', () => {
   const uuidOutput = '0, GPU-aaaa\n';
   const procOutput = 'GPU-unknown, 1, /bin/foo, 10 MiB\n';
   assert.deepEqual(parseGpuProcesses(procOutput, uuidOutput), []);
+});
+
+test('parseDuTopFolder picks the largest immediate subfolder, excluding the mount total line', () => {
+  const output = ['16\t/data/x/lost+found', '349273060\t/data/x/m.raposo', '349273600\t/data/x', ''].join('\n');
+  assert.deepEqual(parseDuTopFolder(output, '/data/x'), { path: '/data/x/m.raposo', sizeKb: 349273060 });
+});
+
+test('parseDuTopFolder ignores unparseable lines (e.g. "du: cannot read directory" permission warnings)', () => {
+  const output = [
+    "du: cannot read directory '/data/x/a/secret': Permission denied",
+    '100\t/data/x/a',
+    '900\t/data/x/b',
+    '1000\t/data/x',
+    '',
+  ].join('\n');
+  assert.deepEqual(parseDuTopFolder(output, '/data/x'), { path: '/data/x/b', sizeKb: 900 });
+});
+
+test('parseDuTopFolder returns null when there are no subfolders (or the scan produced nothing)', () => {
+  assert.equal(parseDuTopFolder('', '/data/x'), null);
+  assert.equal(parseDuTopFolder('1000\t/data/x\n', '/data/x'), null);
 });

@@ -18,6 +18,9 @@ const VIRTUAL_FS_TYPES = new Set([
   'efivarfs',
 ]);
 
+// Root and /boot are always excluded from disk tracking -- noisy, not actionable capacity.
+const EXCLUDED_MOUNTPOINTS = new Set(['/', '/boot']);
+
 // Parses `nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits`
 function parseGpuCsv(output) {
   const gpus = [];
@@ -106,7 +109,7 @@ function parseDf(output, alertThreshold) {
     const [filesystem, type, totalBlocks, usedBlocks, , capacity, ...mountParts] = cols;
     if (VIRTUAL_FS_TYPES.has(type)) continue;
     const mountpoint = mountParts.join(' ');
-    if (mountpoint === '/') continue;
+    if (EXCLUDED_MOUNTPOINTS.has(mountpoint)) continue;
     const usagePercent = parseInt(capacity, 10);
     if (Number.isNaN(usagePercent)) continue;
     volumes.push({
@@ -121,4 +124,28 @@ function parseDf(output, alertThreshold) {
   return volumes;
 }
 
-module.exports = { parseGpuCsv, parseDf, parseDockerPs, parseDockerImages, parseGpuProcesses };
+// Parses `du -x -k --max-depth=1 <mountpoint>` output ("<sizeKb>\t<path>" per line) and
+// returns the largest immediate subfolder, excluding the grand-total line for the mount
+// itself. Lines that don't match (e.g. "du: cannot read directory ...: Permission denied"
+// warnings on stderr-as-stdout in some shells, or a scan cut short by a timeout) are skipped.
+function parseDuTopFolder(output, mountpoint) {
+  let best = null;
+  for (const line of output.split('\n')) {
+    const tab = line.indexOf('\t');
+    if (tab === -1) continue;
+    const sizeKb = Number(line.slice(0, tab).trim());
+    const path = line.slice(tab + 1).trim();
+    if (Number.isNaN(sizeKb) || !path || path === mountpoint) continue;
+    if (!best || sizeKb > best.sizeKb) best = { path, sizeKb };
+  }
+  return best;
+}
+
+module.exports = {
+  parseGpuCsv,
+  parseDf,
+  parseDockerPs,
+  parseDockerImages,
+  parseGpuProcesses,
+  parseDuTopFolder,
+};

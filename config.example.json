@@ -15,5 +15,7 @@
   "dockerQueryCommand": "docker ps --format \"{{.Names}}\\t{{.Status}}\"",
   "dockerImagesQueryCommand": "docker images --format \"{{.Repository}}:{{.Tag}}\\t{{.CreatedSince}}\"",
   "gpuUuidQueryCommand": "nvidia-smi --query-gpu=index,uuid --format=csv,noheader",
-  "gpuProcessesQueryCommand": "nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader"
+  "gpuProcessesQueryCommand": "nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader",
+  "diskTopFolderMountPrefixes": ["/data"],
+  "duTimeoutSeconds": 25
 }

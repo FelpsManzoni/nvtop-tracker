@@ -1,7 +1,22 @@
 const EventEmitter = require('events');
 const { SSHManager } = require('./sshManager');
 const { RollingBuffer } = require('./rollingBuffer');
-const { parseGpuCsv, parseDf, parseDockerPs, parseDockerImages, parseGpuProcesses } = require('./parsers');
+const {
+  parseGpuCsv,
+  parseDf,
+  parseDockerPs,
+  parseDockerImages,
+  parseGpuProcesses,
+  parseDuTopFolder,
+} = require('./parsers');
+
+function isDataMount(mountpoint, prefixes) {
+  return prefixes.some((prefix) => mountpoint === prefix || mountpoint.startsWith(`${prefix}/`));
+}
+
+function shellQuote(str) {
+  return `'${str.replace(/'/g, `'\\''`)}'`;
+}
 
 function initialState(name) {
   return {
@@ -84,7 +99,13 @@ class Collector extends EventEmitter {
     const state = this.state.get(server.name);
     try {
       const output = await ssh.exec(this.config.diskQueryCommand);
-      state.disk = parseDf(output, this.config.diskStorageAlertThreshold);
+      const volumes = parseDf(output, this.config.diskStorageAlertThreshold);
+      await Promise.all(
+        volumes
+          .filter((v) => isDataMount(v.mountpoint, this.config.diskTopFolderMountPrefixes))
+          .map((v) => this._attachTopFolder(ssh, v))
+      );
+      state.disk = volumes;
       state.connected = true;
       state.error = null;
     } catch (err) {
@@ -93,6 +114,20 @@ class Collector extends EventEmitter {
     }
     state.timestamp = Date.now();
     this.emit('update', { ...state });
+  }
+
+  // Best-effort: on a large/busy filesystem the scan can time out before finishing, in
+  // which case the reported "top folder" is only the biggest among whatever got scanned,
+  // not necessarily the true biggest.
+  // ponytail: no caching/indexing (ncdu-style) -- add if 25s repeatedly isn't enough.
+  async _attachTopFolder(ssh, volume) {
+    try {
+      const duCommand = `timeout ${this.config.duTimeoutSeconds} du -x -k --max-depth=1 ${shellQuote(volume.mountpoint)} ; true`;
+      const output = await ssh.exec(duCommand);
+      volume.topFolder = parseDuTopFolder(output, volume.mountpoint);
+    } catch {
+      volume.topFolder = null;
+    }
   }
 
   // Docker + GPU process listings change slowly, so this rides the same interval as

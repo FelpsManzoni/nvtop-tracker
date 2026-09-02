@@ -39,7 +39,9 @@ class SSHManager {
       execFile(
         'ssh',
         this._sshArgs(command),
-        { timeout: 15000, maxBuffer: 10 * 1024 * 1024 },
+        // 40s ceiling: comfortably longer than the 25s `timeout` wrapper the du-based
+        // "top folder" scan runs remotely, while still bounding every other command.
+        { timeout: 40000, maxBuffer: 10 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (err) return reject(new Error(stderr.trim() || err.message));
           resolve(stdout);
