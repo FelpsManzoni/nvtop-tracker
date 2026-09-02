@@ -50,11 +50,12 @@ test('parseDf parses df -kPT output, skips virtual filesystems, flags alert thre
   });
 });
 
-test('parseDf excludes the root and /boot filesystems regardless of usage', () => {
+test('parseDf excludes the root filesystem and everything under /boot regardless of usage', () => {
   const output = [
     'Filesystem     Type     1024-blocks      Used Available Capacity Mounted on',
     '/dev/sda1      ext4       524288000 471859200  52428800      90% /',
     '/dev/sda2      ext4         2000000    225000    1646000      13% /boot',
+    '/dev/sda3      vfat         1098632      6300    1092332       1% /boot/efi',
     '',
   ].join('\n');
   assert.deepEqual(parseDf(output, 85), []);

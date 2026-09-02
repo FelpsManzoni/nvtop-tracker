@@ -18,8 +18,11 @@ const VIRTUAL_FS_TYPES = new Set([
   'efivarfs',
 ]);
 
-// Root and /boot are always excluded from disk tracking -- noisy, not actionable capacity.
-const EXCLUDED_MOUNTPOINTS = new Set(['/', '/boot']);
+// Root and everything under /boot (including /boot/efi) are always excluded from disk
+// tracking -- noisy, not actionable capacity.
+function isExcludedMountpoint(mountpoint) {
+  return mountpoint === '/' || mountpoint === '/boot' || mountpoint.startsWith('/boot/');
+}
 
 // Parses `nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits`
 function parseGpuCsv(output) {
@@ -109,7 +112,7 @@ function parseDf(output, alertThreshold) {
     const [filesystem, type, totalBlocks, usedBlocks, , capacity, ...mountParts] = cols;
     if (VIRTUAL_FS_TYPES.has(type)) continue;
     const mountpoint = mountParts.join(' ');
-    if (EXCLUDED_MOUNTPOINTS.has(mountpoint)) continue;
+    if (isExcludedMountpoint(mountpoint)) continue;
     const usagePercent = parseInt(capacity, 10);
     if (Number.isNaN(usagePercent)) continue;
     volumes.push({
