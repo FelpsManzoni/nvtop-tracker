@@ -33,13 +33,16 @@ class RollingBuffer {
     };
   }
 
-  getHistory() {
-    return this.samples.map(({ timestamp, gpus }) => ({
-      timestamp,
-      avgUtilization: gpus.length
-        ? gpus.reduce((sum, g) => sum + g.utilization, 0) / gpus.length
-        : 0,
-    }));
+  getHistoryByGpu() {
+    const byGpu = {};
+    for (const { timestamp, gpus } of this.samples) {
+      for (const gpu of gpus) {
+        if (!byGpu[gpu.id]) byGpu[gpu.id] = [];
+        const memoryPercent = gpu.memory.total ? (gpu.memory.used / gpu.memory.total) * 100 : 0;
+        byGpu[gpu.id].push({ timestamp, utilization: gpu.utilization, memoryPercent });
+      }
+    }
+    return byGpu;
   }
 }
 
