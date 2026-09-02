@@ -40,16 +40,24 @@ body {
 .main-header h2 { margin: 0; }
 .main-header .status { color: #aaa; font-size: 13px; }
 
-/* Content stacks vertically: GPU graphs (full width) on top, info cards below.
-   Both rows use the same auto-fill/minmax pattern so cards reorganize into as
-   many columns as fit, capped to a max width, instead of stretching edge to edge. */
+/* Content stacks vertically: GPU row on top, info cards below. Both the graph
+   grid and the info-cards row use the same auto-fill/minmax pattern so cards
+   reorganize into as many columns as fit, capped to a max width, instead of
+   stretching edge to edge. */
 #content-grid { display: flex; flex-direction: column; gap: 20px; }
 
+/* GPU list card sticks to the right of the graphs on wide screens; flex-wrap
+   drops it below them on narrow ones instead of a media query. */
+#gpu-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+
 #gpu-graphs {
+  flex: 3 1 600px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 380px));
   gap: 12px;
 }
+
+#gpu-list-sidebar { flex: 1 1 280px; max-width: 380px; }
 .gpu-graph-card { background: #1c1f26; border-radius: 6px; padding: 10px; }
 .gpu-graph-title { font-size: 12px; color: #ccc; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
 .gpu-graph-title .legend { font-size: 11px; }
@@ -104,5 +112,6 @@ body {
 
 .disk-row { margin-bottom: 10px; }
 .disk-row .label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.top-folder { font-size: 11px; color: #888; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .alert-badge { color: #e5484d; font-weight: 600; margin-left: 8px; }

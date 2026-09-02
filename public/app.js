@@ -164,6 +164,7 @@ function renderDiskCard(state) {
             <span>${fmtBytes(d.used)} / ${fmtBytes(d.total)} &middot; ${d.usagePercent}%</span>
           </div>
           <div class="bar-track"><div class="bar-fill ${d.alert ? 'alert' : ''}" style="width:${d.usagePercent}%"></div></div>
+          ${d.topFolder ? `<div class="top-folder">Biggest: ${escapeHtml(d.topFolder.path)} (${fmtBytes(d.topFolder.sizeKb)})</div>` : ''}
         </div>`
         )
         .join('')
@@ -193,9 +194,11 @@ function renderMain() {
       <span class="status">avg 1m: ${fmtPct(trends.gpuAvgUtilization1m)} &middot; avg 5m: ${fmtPct(trends.gpuAvgUtilization5m)} &middot; max 5m: ${fmtPct(trends.gpuMaxUtilization5m)}</span>
     </div>
     <div id="content-grid">
-      <section id="gpu-graphs">${renderGpuGraphs(state)}</section>
+      <div id="gpu-row">
+        <section id="gpu-graphs">${renderGpuGraphs(state)}</section>
+        <aside id="gpu-list-sidebar">${renderGpuListCard(state)}</aside>
+      </div>
       <section id="info-cards">
-        ${renderGpuListCard(state)}
         ${renderDockerCard(state)}
         ${renderDiskCard(state)}
       </section>
