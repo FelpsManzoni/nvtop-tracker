@@ -105,11 +105,13 @@ function parseDf(output, alertThreshold) {
     if (cols.length < 7) continue;
     const [filesystem, type, totalBlocks, usedBlocks, , capacity, ...mountParts] = cols;
     if (VIRTUAL_FS_TYPES.has(type)) continue;
+    const mountpoint = mountParts.join(' ');
+    if (mountpoint === '/') continue;
     const usagePercent = parseInt(capacity, 10);
     if (Number.isNaN(usagePercent)) continue;
     volumes.push({
       filesystem,
-      mountpoint: mountParts.join(' '),
+      mountpoint,
       used: Number(usedBlocks),
       total: Number(totalBlocks),
       usagePercent,

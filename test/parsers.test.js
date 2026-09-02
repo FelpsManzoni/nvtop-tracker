@@ -32,16 +32,24 @@ test('parseDf parses df -kPT output, skips virtual filesystems, flags alert thre
     '',
   ].join('\n');
   const volumes = parseDf(output, 85);
-  assert.equal(volumes.length, 2);
+  assert.equal(volumes.length, 1);
   assert.deepEqual(volumes[0], {
-    filesystem: '/dev/sda1',
-    mountpoint: '/',
-    used: 471859200,
-    total: 524288000,
-    usagePercent: 90,
-    alert: true,
+    filesystem: '/dev/sdb1',
+    mountpoint: '/data',
+    used: 524288000,
+    total: 1048576000,
+    usagePercent: 50,
+    alert: false,
   });
-  assert.equal(volumes[1].alert, false);
+});
+
+test('parseDf excludes the root filesystem regardless of usage', () => {
+  const output = [
+    'Filesystem     Type     1024-blocks      Used Available Capacity Mounted on',
+    '/dev/sda1      ext4       524288000 471859200  52428800      90% /',
+    '',
+  ].join('\n');
+  assert.deepEqual(parseDf(output, 85), []);
 });
 
 test('parseDockerPs parses running containers only (docker ps, not -a)', () => {
