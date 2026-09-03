@@ -341,6 +341,13 @@ function renderMain() {
 
   const blocksHtml = BLOCK_IDS.map((id) => renderBlock(id, blockContent[id].title, blockContent[id].body)).join('');
 
+  // innerHTML replacement below recreates every .block-body node, which would otherwise
+  // reset its scroll position on each ~2s data refresh -- save it here, restore it after.
+  const scrollTops = {};
+  for (const block of mainEl.querySelectorAll('.block')) {
+    scrollTops[block.dataset.blockId] = block.querySelector('.block-body').scrollTop;
+  }
+
   mainEl.innerHTML = `
     <div class="main-header">
       <h2>${escapeHtml(state.server)}</h2>
@@ -349,6 +356,10 @@ function renderMain() {
     </div>
     <div id="dashboard">${blocksHtml}</div>
   `;
+  for (const block of mainEl.querySelectorAll('.block')) {
+    const top = scrollTops[block.dataset.blockId];
+    if (top) block.querySelector('.block-body').scrollTop = top;
+  }
   attachBlockHandlers();
 }
 
