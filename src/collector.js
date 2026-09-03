@@ -8,6 +8,7 @@ const {
   parseDockerImages,
   parseGpuProcesses,
   parseDuTopFolder,
+  parsePsOutput,
 } = require('./parsers');
 
 function isDataMount(mountpoint, prefixes) {
@@ -130,6 +131,27 @@ class Collector extends EventEmitter {
     }
   }
 
+  // Best-effort: nvidia-smi only gives the binary path, not the args or the owning user.
+  // `ps` fills those in, keyed by pid; a process that already exited between the two
+  // queries just keeps nvidia-smi's bare binary path and no owner.
+  async _attachProcessOwners(ssh, processes) {
+    if (!processes.length) return;
+    try {
+      const pids = [...new Set(processes.map((p) => p.pid))];
+      const psOut = await ssh.exec(`ps -o pid=,user=,args= -p ${pids.join(',')}`);
+      const byPid = parsePsOutput(psOut);
+      for (const p of processes) {
+        const info = byPid.get(p.pid);
+        if (info) {
+          p.owner = info.user;
+          p.fullCommand = info.args;
+        }
+      }
+    } catch {
+      // leave processes without owner/args
+    }
+  }
+
   // Docker + GPU process listings change slowly, so this rides the same interval as
   // the disk poll instead of its own timer. Each check fails independently -- a
   // missing `docker` binary shouldn't blank out the GPU process list or vice versa,
@@ -153,7 +175,9 @@ class Collector extends EventEmitter {
         ssh.exec(this.config.gpuUuidQueryCommand),
         ssh.exec(this.config.gpuProcessesQueryCommand),
       ]);
-      state.gpuProcesses = parseGpuProcesses(procOut, uuidOut);
+      const processes = parseGpuProcesses(procOut, uuidOut);
+      await this._attachProcessOwners(ssh, processes);
+      state.gpuProcesses = processes;
     } catch (err) {
       state.gpuProcesses = [];
     }

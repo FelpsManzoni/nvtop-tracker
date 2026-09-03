@@ -40,25 +40,48 @@ body {
 .main-header h2 { margin: 0; }
 .main-header .status { color: #aaa; font-size: 13px; }
 
-/* Content stacks vertically: GPU row on top, info cards below. Both the graph
-   grid and the info-cards row use the same auto-fill/minmax pattern so cards
-   reorganize into as many columns as fit, capped to a max width, instead of
-   stretching edge to edge. */
-#content-grid { display: flex; flex-direction: column; gap: 20px; }
+/* Blocks reflow left-to-right, wrapping to new rows as they run out of space.
+   Each block is independently draggable (by its header handle) and resizable
+   (native corner-drag handle, via `resize`) -- order and sizes persist per
+   browser in localStorage. */
+#dashboard { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 
-/* GPU list card sticks to the right of the graphs on wide screens; flex-wrap
-   drops it below them on narrow ones instead of a media query. */
-#gpu-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.block {
+  background: #1c1f26;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  height: 260px;
+  min-width: 240px;
+  min-height: 140px;
+  overflow: hidden;
+  resize: both;
+}
+.block[data-block-id="gpu-graphs"] { width: 620px; height: 320px; }
+.block[data-block-id="gpu-processes"] { width: 620px; height: 260px; }
 
-#gpu-graphs {
-  flex: 3 1 600px;
+.block-handle {
+  flex-shrink: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #888;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e37;
+  cursor: grab;
+}
+.block-handle:active { cursor: grabbing; }
+
+.block-body { flex: 1; overflow: auto; padding: 10px 14px; }
+.block-body .empty { color: #666; font-size: 13px; }
+
+.gpu-graphs-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 380px));
   gap: 12px;
 }
 
-#gpu-list-sidebar { flex: 1 1 280px; max-width: 380px; }
-.gpu-graph-card { background: #1c1f26; border-radius: 6px; padding: 10px; }
+.gpu-graph-card { background: #22262f; border-radius: 6px; padding: 10px; }
 .gpu-graph-title { font-size: 12px; color: #ccc; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
 .gpu-graph-title .legend { font-size: 11px; }
 .gpu-graph-title .legend.util { color: #3ecf5c; }
@@ -78,17 +101,6 @@ body {
 .line-util { fill: none; stroke: #3ecf5c; stroke-width: 2; }
 .line-mem { fill: none; stroke: #e0a458; stroke-width: 2; }
 
-#info-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 380px));
-  gap: 16px;
-}
-
-.card { background: #1c1f26; border-radius: 6px; padding: 14px; }
-.card h3 { font-size: 12px; text-transform: uppercase; color: #888; margin: 0 0 10px; }
-.card h3:not(:first-child) { margin-top: 16px; }
-.card .empty { color: #666; font-size: 13px; }
-
 .gpu-list-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 0; }
 .gpu-list-name { color: #ccc; }
 .gpu-list-stats { color: #aaa; white-space: nowrap; }
@@ -103,8 +115,9 @@ body {
 .docker-name { flex: 1; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docker-status { color: #888; font-size: 12px; white-space: nowrap; }
 .process-gpu { color: #888; font-size: 12px; width: 46px; flex-shrink: 0; }
-.process-name { flex: 1; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.process-mem { color: #aaa; font-size: 12px; white-space: nowrap; }
+.process-owner { color: #ccc; font-size: 12px; width: 110px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-cmd { flex: 1; min-width: 0; color: #ccc; font-family: ui-monospace, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-mem { color: #aaa; font-size: 12px; width: 80px; flex-shrink: 0; text-align: right; white-space: nowrap; }
 
 .bar-track { background: #2a2e37; border-radius: 4px; height: 10px; overflow: hidden; }
 .bar-fill { height: 100%; background: #3ecf5c; }

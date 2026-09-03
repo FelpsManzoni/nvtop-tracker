@@ -102,6 +102,22 @@ function parseGpuProcesses(processOutput, uuidOutput) {
   return processes;
 }
 
+// Parses `ps -o pid=,user=,args= -p <pids>` output ("<pid> <user> <full command with args>" per
+// line) into a pid -> {user, args} map, used to enrich GPU process rows with owner and the real
+// full command (nvidia-smi's process_name is just the binary path, no args).
+function parsePsOutput(output) {
+  const byPid = new Map();
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(\d+)\s+(\S+)\s+(.*)$/);
+    if (!match) continue;
+    const [, pidStr, user, args] = match;
+    byPid.set(Number(pidStr), { user, args });
+  }
+  return byPid;
+}
+
 // Parses `df -kPT` output (POSIX format with filesystem type column, sizes in 1024-blocks)
 function parseDf(output, alertThreshold) {
   const lines = output.split('\n').filter((l) => l.trim());
@@ -151,4 +167,5 @@ module.exports = {
   parseDockerImages,
   parseGpuProcesses,
   parseDuTopFolder,
+  parsePsOutput,
 };

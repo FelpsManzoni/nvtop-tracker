@@ -7,6 +7,7 @@ const {
   parseDockerImages,
   parseGpuProcesses,
   parseDuTopFolder,
+  parsePsOutput,
 } = require('../src/parsers');
 
 test('parseGpuCsv parses nvidia-smi csv output including GPU name', () => {
@@ -103,6 +104,21 @@ test('parseGpuProcesses skips processes whose GPU uuid is unknown', () => {
   const uuidOutput = '0, GPU-aaaa\n';
   const procOutput = 'GPU-unknown, 1, /bin/foo, 10 MiB\n';
   assert.deepEqual(parseGpuProcesses(procOutput, uuidOutput), []);
+});
+
+test('parsePsOutput maps pid -> {user, args} from `ps -o pid=,user=,args=`', () => {
+  const output = [
+    '1016695 alice    /data/venv/bin/python train.py --config x.yaml',
+    '3908334 bob      /data/venv/bin/python3 -m serve --port 8080',
+    '',
+  ].join('\n');
+  const byPid = parsePsOutput(output);
+  assert.deepEqual(byPid.get(1016695), { user: 'alice', args: '/data/venv/bin/python train.py --config x.yaml' });
+  assert.deepEqual(byPid.get(3908334), { user: 'bob', args: '/data/venv/bin/python3 -m serve --port 8080' });
+});
+
+test('parsePsOutput returns an empty map for empty output', () => {
+  assert.equal(parsePsOutput('').size, 0);
 });
 
 test('parseDuTopFolder picks the largest immediate subfolder, excluding the mount total line', () => {
