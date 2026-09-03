@@ -162,27 +162,88 @@ function renderDiskBody(state) {
     .join('');
 }
 
-// Dashboard blocks: user can drag (by the header handle) to reorder and resize (native
-// corner drag handle) each one. Order + sizes persist per-browser in localStorage.
-const DEFAULT_BLOCK_ORDER = ['gpu-graphs', 'gpu-list', 'docker', 'gpu-processes', 'disk'];
+// Dashboard blocks live on a snap-to-grid: each has a {col, row, colSpan, rowSpan} in grid
+// cell units (see CELL/GAP below). Dragging a block by its header moves it to the cell under
+// the cursor; resizing (native corner drag handle) rounds to the nearest whole span. Either
+// action can make it overlap a neighbor, so every change runs through resolveLayout(), which
+// pushes overlapping blocks down and then compacts everything back upward to close gaps --
+// the same drop-resolve-compact approach tools like react-grid-layout use, written directly
+// since there are only 5 blocks and it's not worth a dependency. Layout persists per-browser
+// in localStorage.
+const CELL = 40; // px per grid unit, both axes
+const GAP = 16; // px between cells, must match #dashboard's CSS `gap`
 
-function loadBlockOrder() {
-  const saved = JSON.parse(localStorage.getItem('blockOrder'));
-  if (!Array.isArray(saved)) return [...DEFAULT_BLOCK_ORDER];
-  const known = saved.filter((id) => DEFAULT_BLOCK_ORDER.includes(id));
-  const missing = DEFAULT_BLOCK_ORDER.filter((id) => !known.includes(id));
-  return [...known, ...missing];
+const DEFAULT_BLOCK_LAYOUT = {
+  'gpu-graphs': { col: 0, row: 0, colSpan: 11, rowSpan: 6 },
+  'gpu-list': { col: 11, row: 0, colSpan: 7, rowSpan: 6 },
+  docker: { col: 0, row: 6, colSpan: 7, rowSpan: 5 },
+  'gpu-processes': { col: 7, row: 6, colSpan: 11, rowSpan: 5 },
+  disk: { col: 0, row: 11, colSpan: 7, rowSpan: 5 },
+};
+const BLOCK_IDS = Object.keys(DEFAULT_BLOCK_LAYOUT);
+
+// Inverse of span-in-px = n*CELL + (n-1)*GAP.
+function pxToSpan(px) {
+  return Math.max(1, Math.round((px + GAP) / (CELL + GAP)));
 }
 
-let blockOrder = loadBlockOrder();
-let blockSizes = JSON.parse(localStorage.getItem('blockSizes')) || {};
-
-function saveBlockOrder() {
-  localStorage.setItem('blockOrder', JSON.stringify(blockOrder));
+// Inverse of cell-start-in-px = n*(CELL+GAP).
+function pxToCell(px) {
+  return Math.max(0, Math.round(px / (CELL + GAP)));
 }
 
-function saveBlockSizes() {
-  localStorage.setItem('blockSizes', JSON.stringify(blockSizes));
+function overlapsX(a, b) {
+  return a.col < b.col + b.colSpan && a.col + a.colSpan > b.col;
+}
+
+function overlapsY(a, b, row) {
+  return row < b.row + b.rowSpan && row + a.rowSpan > b.row;
+}
+
+// Pushes any block that overlaps an earlier (by row, then col) block straight down, then
+// compacts every block back up as far as it can go without overlapping. Mutates `layout`.
+function resolveLayout(layout) {
+  const items = Object.values(layout);
+  items.sort((a, b) => a.row - b.row || a.col - b.col);
+
+  const placed = [];
+  for (const item of items) {
+    let row = item.row;
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const p of placed) {
+        if (overlapsX(item, p) && overlapsY(item, p, row)) {
+          row = p.row + p.rowSpan;
+          moved = true;
+        }
+      }
+    }
+    item.row = row;
+    placed.push(item);
+  }
+
+  for (const item of placed) {
+    while (item.row > 0 && !placed.some((p) => p !== item && overlapsX(item, p) && overlapsY(item, p, item.row - 1))) {
+      item.row -= 1;
+    }
+  }
+}
+
+function loadBlockLayout() {
+  const saved = JSON.parse(localStorage.getItem('blockLayout'));
+  const layout = {};
+  for (const id of BLOCK_IDS) {
+    const entry = saved && saved[id];
+    layout[id] = entry ? { ...entry } : { ...DEFAULT_BLOCK_LAYOUT[id] };
+  }
+  return layout;
+}
+
+let blockLayout = loadBlockLayout();
+
+function saveBlockLayout() {
+  localStorage.setItem('blockLayout', JSON.stringify(blockLayout));
 }
 
 // Full-page re-renders arrive every ~2s from the GPU poll (see source.onmessage below).
@@ -204,9 +265,12 @@ let draggedBlockId = null;
 const blockResizeObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const { width, height } = entry.contentRect;
-    blockSizes[entry.target.dataset.blockId] = { width: Math.round(width), height: Math.round(height) };
+    const item = blockLayout[entry.target.dataset.blockId];
+    item.colSpan = pxToSpan(width);
+    item.rowSpan = pxToSpan(height);
   }
-  saveBlockSizes();
+  resolveLayout(blockLayout);
+  saveBlockLayout();
   markInteracting();
 });
 
@@ -220,32 +284,37 @@ function attachBlockHandlers() {
       e.dataTransfer.effectAllowed = 'move';
       markInteracting();
     });
-
-    block.addEventListener('dragover', (e) => {
-      if (!draggedBlockId) return;
-      e.preventDefault();
-      markInteracting();
-    });
-
-    block.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const targetId = block.dataset.blockId;
-      if (draggedBlockId && draggedBlockId !== targetId) {
-        blockOrder.splice(blockOrder.indexOf(draggedBlockId), 1);
-        blockOrder.splice(blockOrder.indexOf(targetId), 0, draggedBlockId);
-        saveBlockOrder();
-      }
-      draggedBlockId = null;
-      renderMain();
-    });
   }
+
+  const dashboardEl = mainEl.querySelector('#dashboard');
+  if (!dashboardEl) return;
+
+  dashboardEl.addEventListener('dragover', (e) => {
+    if (!draggedBlockId) return;
+    e.preventDefault();
+    markInteracting();
+  });
+
+  dashboardEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (draggedBlockId) {
+      const rect = dashboardEl.getBoundingClientRect();
+      const item = blockLayout[draggedBlockId];
+      item.col = pxToCell(e.clientX - rect.left);
+      item.row = pxToCell(e.clientY - rect.top);
+      resolveLayout(blockLayout);
+      saveBlockLayout();
+    }
+    draggedBlockId = null;
+    renderMain();
+  });
 }
 
 function renderBlock(id, title, bodyHtml) {
-  const size = blockSizes[id];
-  const style = size ? ` style="width:${size.width}px;height:${size.height}px"` : '';
+  const { col, row, colSpan, rowSpan } = blockLayout[id];
+  const style = `grid-column:${col + 1}/span ${colSpan};grid-row:${row + 1}/span ${rowSpan}`;
   return `
-    <div class="block" data-block-id="${id}"${style}>
+    <div class="block" data-block-id="${id}" style="${style}">
       <div class="block-handle" draggable="true">${title}</div>
       <div class="block-body">${bodyHtml}</div>
     </div>`;
@@ -270,7 +339,7 @@ function renderMain() {
     disk: { title: `Disk${diskAlert}`, body: renderDiskBody(state) },
   };
 
-  const blocksHtml = blockOrder.map((id) => renderBlock(id, blockContent[id].title, blockContent[id].body)).join('');
+  const blocksHtml = BLOCK_IDS.map((id) => renderBlock(id, blockContent[id].title, blockContent[id].body)).join('');
 
   mainEl.innerHTML = `
     <div class="main-header">

@@ -40,26 +40,22 @@ body {
 .main-header h2 { margin: 0; }
 .main-header .status { color: #aaa; font-size: 13px; }
 
-/* Blocks reflow left-to-right, wrapping to new rows as they run out of space.
-   Each block is independently draggable (by its header handle) and resizable
-   (native corner-drag handle, via `resize`) -- order and sizes persist per
-   browser in localStorage. */
-#dashboard { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+/* Blocks sit on a snap-to-grid (40px cells, 16px gap -- see CELL/GAP in app.js) and are
+   placed via inline grid-column/grid-row. Each block is freely draggable (by its header
+   handle) to any cell and resizable (native corner-drag handle, via `resize`), snapping to
+   the nearest whole cell span; layout persists per browser in localStorage. */
+#dashboard { display: grid; grid-auto-columns: 40px; grid-auto-rows: 40px; gap: 16px; overflow-x: auto; }
 
 .block {
   background: #1c1f26;
   border-radius: 6px;
   display: flex;
   flex-direction: column;
-  width: 380px;
-  height: 260px;
   min-width: 240px;
   min-height: 140px;
   overflow: hidden;
   resize: both;
 }
-.block[data-block-id="gpu-graphs"] { width: 620px; height: 320px; }
-.block[data-block-id="gpu-processes"] { width: 620px; height: 260px; }
 
 .block-handle {
   flex-shrink: 0;
