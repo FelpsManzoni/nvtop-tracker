@@ -2,6 +2,7 @@
   "name": "nvtop-tracker",
   "version": "1.0.0",
   "description": "Multi-server GPU & disk monitoring dashboard",
+  "license": "MIT",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
