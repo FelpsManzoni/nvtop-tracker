@@ -48,6 +48,31 @@ Then open `http://localhost:3000`.
 `config.json` is gitignored — it's meant to hold your real server
 hostnames and is never meant to be committed.
 
+## Running as a service (Ubuntu / systemd)
+
+To keep the dashboard running in the background, restart it on crash, and
+start it at boot:
+
+```bash
+npm install
+cp config.example.json config.json   # then edit it
+sudo ./deploy/install.sh             # or: sudo ./deploy/install.sh <user>
+```
+
+The service runs as the user who invoked `sudo` (or the one you pass), so
+it uses that user's `~/.ssh/config` and keys. It does **not** see your
+desktop SSH agent: the keys it needs must be readable without a passphrase
+prompt (e.g. listed via `IdentityFile` in `~/.ssh/config`).
+
+Re-run `install.sh` after moving the repo or changing Node versions.
+
+```bash
+systemctl status nvtop-tracker
+sudo systemctl restart nvtop-tracker   # after editing config.json
+journalctl -u nvtop-tracker -f         # logs
+sudo ./deploy/uninstall.sh             # remove the service
+```
+
 ## Configuration
 
 All fields are optional except `servers`; anything you omit falls back to
