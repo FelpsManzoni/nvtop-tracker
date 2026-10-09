@@ -1,0 +1,21 @@
+[Unit]
+Description=nvtop-tracker GPU & disk monitoring dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Placeholders are filled in by deploy/install.sh.
+# Runs as the user whose ~/.ssh keys/config reach the monitored servers.
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__APP_DIR__
+ExecStart=__NODE__ __APP_DIR__/src/server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nvtop-tracker
+
+[Install]
+WantedBy=multi-user.target
