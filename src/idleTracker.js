@@ -8,6 +8,9 @@ class IdleTracker {
   }
 
   update(gpus, now = Date.now()) {
+    // Forget GPUs missing from this sample, so a re-appearing/re-indexed id starts fresh.
+    const ids = new Set(gpus.map((g) => g.id));
+    for (const id of this.since.keys()) if (!ids.has(id)) this.since.delete(id);
     for (const g of gpus) {
       if (g.utilization >= 1) this.since.delete(g.id);
       else if (!this.since.has(g.id)) this.since.set(g.id, now);

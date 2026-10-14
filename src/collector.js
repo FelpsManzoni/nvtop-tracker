@@ -42,6 +42,7 @@ class Collector extends EventEmitter {
     this.state = new Map();
     this.buffers = new Map();
     this.idle = new Map();
+    this.processPollsInFlight = new Set();
     this.ssh = new Map();
     this.timers = [];
 
@@ -80,8 +81,17 @@ class Collector extends EventEmitter {
     const ssh = this.ssh.get(server.name);
     const state = this.state.get(server.name);
     // GPU processes ride the GPU poll so owner avatars stay as fresh as the utilization
-    // numbers; both results go out in one update to avoid doubling SSE re-renders.
-    const processesPromise = this._pollGpuProcesses(ssh);
+    // numbers. Their result is stored whenever it lands and goes out with the next GPU
+    // update (no extra SSE re-render), so a slow/hung process query never delays GPU
+    // telemetry; at most one process query per server is in flight at a time.
+    if (!this.processPollsInFlight.has(server.name)) {
+      this.processPollsInFlight.add(server.name);
+      this._pollGpuProcesses(ssh)
+        .then((processes) => {
+          state.gpuProcesses = processes;
+        })
+        .finally(() => this.processPollsInFlight.delete(server.name));
+    }
     try {
       const output = await ssh.exec(this.config.gpuQueryCommand);
       const gpus = parseGpuCsv(output);
@@ -101,7 +111,6 @@ class Collector extends EventEmitter {
     } catch (err) {
       Object.assign(state, { connected: false, error: err.message, timestamp: Date.now() });
     }
-    state.gpuProcesses = await processesPromise;
     this.emit('update', { ...state });
   }
 

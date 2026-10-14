@@ -110,6 +110,8 @@ function renderGpuOwners(gpuId, processes) {
 }
 
 function renderGpuStatus(gpu, state) {
+  // A stale idleSince from before the server went unreachable would otherwise keep counting.
+  if (!state.connected) return '<span class="gpu-status"><span class="gpu-offline">offline</span></span>';
   const idleMs = gpu.idleSince == null ? '' : state.timestamp - gpu.idleSince;
   return `
     <span class="gpu-status">
