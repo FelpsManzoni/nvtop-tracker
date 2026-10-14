@@ -141,3 +141,8 @@ test('parseDuTopFolder returns null when there are no subfolders (or the scan pr
   assert.equal(parseDuTopFolder('', '/data/x'), null);
   assert.equal(parseDuTopFolder('1000\t/data/x\n', '/data/x'), null);
 });
+
+test('parsePsOutput keeps usernames longer than 8 chars from `ps -o user:64=`', () => {
+  const byPid = parsePsOutput('42 f.manzoni                                                         python train.py\n');
+  assert.deepEqual(byPid.get(42), { user: 'f.manzoni', args: 'python train.py' });
+});

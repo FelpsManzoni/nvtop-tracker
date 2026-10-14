@@ -7,6 +7,18 @@ const config = loadConfig();
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// Only files explicitly mapped in config.userAvatars are served; the request never
+// contributes to the filesystem path, so there's nothing to traverse.
+function avatarHandler(userAvatars, rootDir = path.join(__dirname, '..')) {
+  return (req, res) => {
+    if (!Object.hasOwn(userAvatars, req.params.user)) return res.sendStatus(404);
+    res.sendFile(path.resolve(rootDir, userAvatars[req.params.user]), { maxAge: '1h' }, (err) => {
+      if (err && !res.headersSent) res.sendStatus(404);
+    });
+  };
+}
+app.get('/avatars/:user', avatarHandler(config.userAvatars));
+
 const collector = new Collector(config);
 const clients = new Set();
 
@@ -41,4 +53,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, collector };
+module.exports = { app, collector, avatarHandler };

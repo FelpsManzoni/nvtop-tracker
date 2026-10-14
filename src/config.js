@@ -21,6 +21,8 @@ const DEFAULTS = {
   // Mounts equal to (or nested under) one of these prefixes get a "top offending folder" scan.
   diskTopFolderMountPrefixes: ['/data'],
   duTimeoutSeconds: 25,
+  // Linux username -> image path (relative to the repo root, or absolute), served at /avatars/<user>.
+  userAvatars: {},
 };
 
 function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
