@@ -64,7 +64,63 @@ const GRAPH_WIDTH = 280;
 const GRAPH_HEIGHT = 140;
 const GRAPH_AXIS_TICKS = [100, 75, 50, 25, 0];
 
-function renderGpuGraphCard(gpu, series) {
+const IDLE_GRACE_MS = 60 * 1000;
+
+// Idle time is measured on the server's clock (state.timestamp - idleSince) and then
+// advanced by local elapsed time since the update arrived, so browser clock skew doesn't matter.
+function idleLabel(el) {
+  const idleMs = Number(el.dataset.idleMs) + (Date.now() - Number(el.dataset.receivedAt));
+  if (el.dataset.idleMs === '' || idleMs < IDLE_GRACE_MS) return { text: 'in use', idle: false };
+  const total = Math.floor(idleMs / 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return { text: `${pad(Math.floor(total / 3600))}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`, idle: true };
+}
+
+function paintIdle(el) {
+  const { text, idle } = idleLabel(el);
+  el.textContent = text;
+  el.classList.toggle('idle', idle);
+}
+
+// Ticks only the idle labels between ~2s SSE renders, so the timer counts smoothly
+// without re-rendering (and disturbing drag/resize).
+setInterval(() => document.querySelectorAll('.gpu-idle').forEach(paintIdle), 1000);
+
+function initials(user) {
+  return user
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+}
+
+function renderGpuOwners(gpuId, processes) {
+  const owners = new Map();
+  for (const p of processes) {
+    if (p.gpuId === gpuId && p.owner && !owners.has(p.owner)) owners.set(p.owner, p.avatarUrl);
+  }
+  return [...owners]
+    .map(([owner, url]) =>
+      url
+        ? `<img class="avatar" src="${escapeHtml(url)}" alt="${escapeHtml(owner)}" title="${escapeHtml(owner)}">`
+        : `<span class="avatar initials" title="${escapeHtml(owner)}">${escapeHtml(initials(owner))}</span>`
+    )
+    .join('');
+}
+
+function renderGpuStatus(gpu, state) {
+  // A stale idleSince from before the server went unreachable would otherwise keep counting.
+  if (!state.connected) return '<span class="gpu-status"><span class="gpu-offline">offline</span></span>';
+  const idleMs = gpu.idleSince == null ? '' : state.timestamp - gpu.idleSince;
+  return `
+    <span class="gpu-status">
+      ${renderGpuOwners(gpu.id, state.gpuProcesses || [])}
+      <span class="gpu-idle" data-idle-ms="${idleMs}" data-received-at="${state.receivedAt}"></span>
+    </span>`;
+}
+
+function renderGpuGraphCard(gpu, series, state) {
   const windowMs = 5 * 60 * 1000;
   const now = series.length ? series[series.length - 1].timestamp : Date.now();
 
@@ -83,6 +139,7 @@ function renderGpuGraphCard(gpu, series) {
         GPU ${gpu.id}
         <span class="legend util">util %</span>
         <span class="legend mem">mem %</span>
+        ${renderGpuStatus(gpu, state)}
       </div>
       <div class="graph-body">
         <div class="axis-labels">${GRAPH_AXIS_TICKS.map((t) => `<span>${t}</span>`).join('')}</div>
@@ -97,7 +154,7 @@ function renderGpuGraphCard(gpu, series) {
 function renderGpuGraphsBody(state) {
   if (!state.gpu.length) return '<div class="empty">No GPU data</div>';
   return `<div class="gpu-graphs-grid">${state.gpu
-    .map((g) => renderGpuGraphCard(g, (state.historyByGpu && state.historyByGpu[g.id]) || []))
+    .map((g) => renderGpuGraphCard(g, (state.historyByGpu && state.historyByGpu[g.id]) || [], state))
     .join('')}</div>`;
 }
 
@@ -360,12 +417,14 @@ function renderMain() {
     const top = scrollTops[block.dataset.blockId];
     if (top) block.querySelector('.block-body').scrollTop = top;
   }
+  mainEl.querySelectorAll('.gpu-idle').forEach(paintIdle);
   attachBlockHandlers();
 }
 
 const source = new EventSource('/stream');
 source.onmessage = (event) => {
   const state = JSON.parse(event.data);
+  state.receivedAt = Date.now();
   if (!servers.has(state.server)) {
     order.push(state.server);
     if (!focused) focused = state.server;

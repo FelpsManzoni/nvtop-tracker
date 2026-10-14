@@ -82,6 +82,12 @@ body {
 .gpu-graph-title .legend { font-size: 11px; }
 .gpu-graph-title .legend.util { color: #3ecf5c; }
 .gpu-graph-title .legend.mem { color: #e0a458; }
+.gpu-status { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.gpu-idle { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #2e4a35; color: #3ecf5c; }
+.gpu-offline { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #4a2e2e; color: #e06c6c; }
+.gpu-idle.idle { background: #3a3f4b; color: #ccc; font-variant-numeric: tabular-nums; }
+.avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; }
+.avatar.initials { display: inline-flex; align-items: center; justify-content: center; background: #4a5263; color: #eee; font-size: 9px; font-weight: 600; }
 .graph-body { display: flex; gap: 6px; }
 .axis-labels {
   display: flex;

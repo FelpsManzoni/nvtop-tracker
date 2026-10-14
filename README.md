@@ -14,6 +14,9 @@ just SSH and a couple of standard CLI tools.
   focus from the sidebar.
 - **Live GPU metrics**: per-GPU utilization, memory, and temperature,
   polled every couple of seconds with a rolling 5-minute history graph.
+- **Idle timer & owners**: each GPU card shows how long it has been idle
+  (`hh:mm:ss`, after 1 minute below 1% utilization) or an "in use" tag,
+  plus round avatars of the users currently running processes on it.
 - **Disk usage**: per-mount usage with a configurable alert threshold, plus
   an optional "biggest subfolder" scan for mounts you care about.
 - **Docker & GPU processes**: running containers, images, and which
@@ -88,6 +91,7 @@ the default shown below (see `src/config.js`).
 | `diskStorageAlertThreshold` | `85` | Usage percent (per mount) that triggers the alert badge. |
 | `sshRetryMaxAttempts` / `sshRetryDelayMs` | `3` / `5000` | Retry behavior for a failed SSH command, with exponential backoff. |
 | `diskTopFolderMountPrefixes` | `[]` | Mounts (or prefixes) to run the "biggest subfolder" `du` scan against, e.g. `["/data"]`. |
+| `userAvatars` | `{}` | Map of Linux username → profile picture path (relative to the repo root, or absolute), e.g. `{ "f.manzoni": "avatars/f.manzoni.png" }`. Shown as a round avatar on each GPU card for the users running processes on it; unmapped users get an initials badge. The `avatars/` folder is gitignored. |
 | `duTimeoutSeconds` | `25` | Time limit for the remote `du` scan; a slow/huge filesystem just reports the biggest folder found so far. |
 | `gpuQueryCommand`, `diskQueryCommand`, `dockerQueryCommand`, `dockerImagesQueryCommand`, `gpuUuidQueryCommand`, `gpuProcessesQueryCommand` | — | The exact remote commands used to collect each kind of data, in case you need to adapt them for your environment. |
 

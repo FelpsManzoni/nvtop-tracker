@@ -21,6 +21,8 @@ const DEFAULTS = {
   // Mounts equal to (or nested under) one of these prefixes get a "top offending folder" scan.
   diskTopFolderMountPrefixes: ['/data'],
   duTimeoutSeconds: 25,
+  // Linux username -> image path (relative to the repo root, or absolute), served at /avatars/<user>.
+  userAvatars: {},
 };
 
 function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
@@ -28,7 +30,13 @@ function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
   if (fs.existsSync(configPath)) {
     userConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
-  return { ...DEFAULTS, ...userConfig };
+  const config = { ...DEFAULTS, ...userConfig };
+  const avatars = config.userAvatars;
+  if (!avatars || typeof avatars !== 'object' || Array.isArray(avatars) ||
+      Object.values(avatars).some((v) => typeof v !== 'string')) {
+    throw new Error('config.userAvatars must be an object mapping usernames to image paths');
+  }
+  return config;
 }
 
 module.exports = { loadConfig, DEFAULTS };
