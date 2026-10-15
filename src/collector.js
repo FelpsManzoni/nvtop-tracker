@@ -1,7 +1,7 @@
 const EventEmitter = require('events');
 const { SSHManager } = require('./sshManager');
 const { RollingBuffer } = require('./rollingBuffer');
-const { IdleTracker } = require('./idleTracker');
+const { IdleHistory } = require('./idleHistory');
 const {
   parseGpuCsv,
   parseDf,
@@ -49,7 +49,7 @@ class Collector extends EventEmitter {
     for (const server of config.servers) {
       this.state.set(server.name, initialState(server.name));
       this.buffers.set(server.name, new RollingBuffer({ historyMinutes: config.gpuHistoryMinutes }));
-      this.idle.set(server.name, new IdleTracker());
+      this.idle.set(server.name, new IdleHistory());
       this.ssh.set(
         server.name,
         new SSHManager(server, {
@@ -103,7 +103,7 @@ class Collector extends EventEmitter {
       Object.assign(state, {
         connected: true,
         error: null,
-        gpu: idle.annotate(gpus),
+        gpu: idle.annotate(gpus, now),
         trends: buffer.getTrends(),
         historyByGpu: buffer.getHistoryByGpu(),
         timestamp: Date.now(),
