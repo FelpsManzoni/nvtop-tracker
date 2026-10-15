@@ -45,6 +45,14 @@ test('a busy blip of 9 minutes does not close the period; 11 minutes does', () =
   assert.strictEqual(h.summary(0, t).lastIdleMs, 80 * MIN);
 });
 
+test('a busy stretch of exactly 10 minutes is still absorbed', () => {
+  const h = new IdleHistory();
+  let t = feed(h, 0, 0, HOUR);
+  t = feed(h, 50, t, t + 11 * MIN); // busy samples 60..70m: exactly 10 min busy at 70m
+  t = feed(h, 0, t, t + MIN);
+  assert.strictEqual(h.summary(0, t).lastIdleMs, null);
+});
+
 test('the live idleSince still resets on any activity', () => {
   const h = new IdleHistory();
   let t = feed(h, 0, 0, HOUR);
