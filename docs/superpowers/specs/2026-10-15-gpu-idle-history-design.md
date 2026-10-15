@@ -62,8 +62,9 @@ GPUs absent from a sample are not touched; the gap rule handles them when they r
 
 - `idleSince` — as above (sent to the live timer).
 - `lastIdleMs` — `end - start` of the most recent closed period, or `null`.
-- `idle30dMs` — sum over closed periods plus the open period (`openStart..now`) of their
-  overlap with `[now - WINDOW_MS, now]`.
+- `idle30dMs` — sum over closed periods plus the open period (`openStart..lastSampleAt`) of
+  their overlap with `[now - WINDOW_MS, now]`. The open period is counted up to the last
+  successful sample, not `now`, so the total doesn't keep growing while a server is unreachable.
 
 Worked example: idle 12h, busy 1m, idle 1h30m, busy 3h → one period of 13h31m, closed when
 the 3h stretch passes 10 minutes; `lastIdleMs` = 13:31:00.
@@ -107,7 +108,7 @@ longer downtime the gap rule closes open periods at the last saved sample.
 - `test/idleHistory.test.js`: the worked example (13:31:00); idle ≤ 10 min never recorded;
   9-minute busy blip does not close, 11-minute busy stretch does; period end = start of
   sustained activity; live `idleSince` still resets on any activity; 30-day partial overlap
-  and pruning; open period counted up to now; 3-minute gap continues, 6-minute gap closes at
+  and pruning; open period counted up to the last sample (not now); 3-minute gap continues, 6-minute gap closes at
   last sample and resets; `toJSON`/`fromJSON` round trip.
 - `test/idleStore.test.js`: save→load round trip; missing file → empty; corrupt file →
   backed up and empty; directory created on save.
