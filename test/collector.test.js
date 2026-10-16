@@ -97,8 +97,27 @@ test('a failing save is logged and does not throw', (t) => {
   const blocker = path.join(dir, 'not-a-dir');
   fs.writeFileSync(blocker, '');
   const { collector } = setup(path.join(blocker, 'idle-history.json'));
+  const before = console.warn.mock.calls.length; // construction already warned about the unreadable path
   assert.doesNotThrow(() => collector.saveIdleHistory());
-  assert.ok(console.warn.mock.calls.length > 0);
+  assert.strictEqual(console.warn.mock.calls.length, before + 1);
+  assert.match(console.warn.mock.calls.at(-1).arguments[0], /saving .* failed/);
+});
+
+test('start() registers a 60 s idle-history save timer and stop() clears every timer', (t) => {
+  const file = tmpIdleFile();
+  const { collector } = setup(file);
+  let next = 0;
+  const set = t.mock.method(globalThis, 'setInterval', () => ++next);
+  const clear = t.mock.method(globalThis, 'clearInterval', () => {});
+  collector.start();
+  const save = set.mock.calls.find((c) => c.arguments[1] === 60_000);
+  assert.ok(save, 'a 60 s timer is registered');
+  save.arguments[0]();
+  assert.ok(fs.existsSync(file), 'the timer callback saves the file');
+  collector.stop();
+  const registered = set.mock.calls.map((c) => c.result).sort();
+  const cleared = clear.mock.calls.map((c) => c.arguments[0]).sort();
+  assert.deepStrictEqual(cleared, registered);
 });
 
 test('loadConfig rejects a non-string idleHistoryFile', () => {
