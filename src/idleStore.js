@@ -11,6 +11,11 @@ function load(filePath) {
     raw = fs.readFileSync(filePath, 'utf8');
   } catch (err) {
     if (err.code === 'ENOENT') return {};
+    // Never move a directory aside (e.g. idleHistoryFile misconfigured as "data").
+    if (err.code === 'EISDIR') {
+      console.warn(`idle history: ${filePath} is a directory, not a file; leaving it in place and starting empty`);
+      return {};
+    }
     return discard(filePath, `cannot be read (${err.message})`);
   }
   try {
