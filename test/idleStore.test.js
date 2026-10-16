@@ -60,3 +60,13 @@ test('a failed backup is reported truthfully and load still returns empty', (t) 
   assert.deepStrictEqual(load(file), {});
   assert.match(warn.mock.calls[0].arguments[0], /could not move it aside/);
 });
+
+test('a directory at the history path is left in place and loads empty', (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const file = tmpFile();
+  fs.mkdirSync(file, { recursive: true });
+  assert.deepStrictEqual(load(file), {});
+  assert.ok(fs.statSync(file).isDirectory());
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.corrupt-')), []);
+  assert.match(warn.mock.calls[0].arguments[0], /is a directory/);
+});
