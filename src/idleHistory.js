@@ -14,8 +14,18 @@ class IdleHistory {
   constructor(saved) {
     this.gpus = new Map();
     for (const [id, raw] of Object.entries(saved || {})) {
+      // Hand-edited or damaged files: keep only finite timestamps and well-formed periods.
       const s = raw && typeof raw === 'object' ? raw : {};
-      this.gpus.set(Number(id), { ...freshGpu(), ...s, periods: Array.isArray(s.periods) ? [...s.periods] : [] });
+      const time = (v) => (Number.isFinite(v) ? v : null);
+      this.gpus.set(Number(id), {
+        idleSince: time(s.idleSince),
+        busySince: time(s.busySince),
+        openStart: time(s.openStart),
+        lastSampleAt: time(s.lastSampleAt),
+        periods: (Array.isArray(s.periods) ? s.periods : [])
+          .filter((p) => p && Number.isFinite(p.start) && Number.isFinite(p.end) && p.start <= p.end)
+          .map(({ start, end }) => ({ start, end })),
+      });
     }
   }
 
@@ -28,7 +38,8 @@ class IdleHistory {
       if (!this.gpus.has(id)) this.gpus.set(id, freshGpu());
       const s = this.gpus.get(id);
 
-      if (s.lastSampleAt !== null && now - s.lastSampleAt > GAP_MS) {
+      // A long gap, or the clock moving backwards, means we don't know what happened in between.
+      if (s.lastSampleAt !== null && (now < s.lastSampleAt || now - s.lastSampleAt > GAP_MS)) {
         if (s.openStart !== null) s.periods.push({ start: s.openStart, end: s.lastSampleAt });
         s.idleSince = s.busySince = s.openStart = null;
       }
