@@ -18,5 +18,6 @@
   "gpuProcessesQueryCommand": "nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader",
   "diskTopFolderMountPrefixes": ["/data"],
   "duTimeoutSeconds": 25,
-  "userAvatars": { "f.manzoni": "avatars/f.manzoni.png" }
+  "userAvatars": { "f.manzoni": "avatars/f.manzoni.png" },
+  "idleHistoryFile": "data/idle-history.json"
 }
