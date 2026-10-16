@@ -144,3 +144,21 @@ test('annotate spreads the summary onto each gpu entry', () => {
     { id: 1, utilization: 90, idleSince: null, lastIdleMs: null, idle30dMs: 0 },
   ]);
 });
+
+test('malformed saved periods and timestamps are dropped instead of breaking updates', () => {
+  const h = IdleHistory.fromJSON({
+    0: { idleSince: 'x', lastSampleAt: 1000, periods: [null, { start: 'a', end: 5 }, { start: 9, end: 3 }, { start: 100, end: 200 }] },
+  });
+  assert.doesNotThrow(() => h.update([{ id: 0, utilization: 0 }], 2000));
+  assert.deepStrictEqual(h.toJSON()[0].periods, [{ start: 100, end: 200 }]);
+  assert.strictEqual(h.summary(0, 2000).idleSince, 2000);
+});
+
+test('a backward clock jump closes the open period and starts fresh', () => {
+  const h = new IdleHistory();
+  feed(h, 0, 0, 30 * MIN); // open from 0, last sample at 29m
+  h.update([{ id: 0, utilization: 0 }], 10 * MIN); // clock moved back 19 minutes
+  const s = h.summary(0, 10 * MIN);
+  assert.strictEqual(s.idleSince, 10 * MIN);
+  assert.strictEqual(s.lastIdleMs, 29 * MIN);
+});
