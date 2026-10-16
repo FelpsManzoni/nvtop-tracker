@@ -23,6 +23,8 @@ const DEFAULTS = {
   duTimeoutSeconds: 25,
   // Linux username -> image path (relative to the repo root, or absolute), served at /avatars/<user>.
   userAvatars: {},
+  // Where per-GPU idle history is persisted (relative to the repo root, or absolute).
+  idleHistoryFile: 'data/idle-history.json',
 };
 
 function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
@@ -35,6 +37,9 @@ function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
   if (!avatars || typeof avatars !== 'object' || Array.isArray(avatars) ||
       Object.values(avatars).some((v) => typeof v !== 'string')) {
     throw new Error('config.userAvatars must be an object mapping usernames to image paths');
+  }
+  if (typeof config.idleHistoryFile !== 'string' || !config.idleHistoryFile) {
+    throw new Error('config.idleHistoryFile must be a non-empty file path');
   }
   return config;
 }
