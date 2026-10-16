@@ -10,8 +10,8 @@ function load(filePath) {
   try {
     raw = fs.readFileSync(filePath, 'utf8');
   } catch (err) {
-    if (err.code !== 'ENOENT') console.warn(`idle history: cannot read ${filePath} (${err.message}); starting empty`);
-    return {};
+    if (err.code === 'ENOENT') return {};
+    return discard(filePath, `cannot be read (${err.message})`);
   }
   try {
     const data = JSON.parse(raw);
@@ -19,15 +19,20 @@ function load(filePath) {
     if (!servers || typeof servers !== 'object' || Array.isArray(servers)) throw new Error('unrecognized format');
     return servers;
   } catch (err) {
-    const backup = `${filePath}.corrupt-${Date.now()}`;
-    console.warn(`idle history: ${filePath} is unreadable (${err.message}); moved to ${backup}, starting empty`);
-    try {
-      fs.renameSync(filePath, backup);
-    } catch {
-      // best effort: the next save overwrites it anyway
-    }
-    return {};
+    return discard(filePath, `is unreadable (${err.message})`);
   }
+}
+
+// Moves a bad file aside (never deletes it) so the next save can't overwrite the only copy.
+function discard(filePath, reason) {
+  const backup = `${filePath}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(filePath, backup);
+    console.warn(`idle history: ${filePath} ${reason}; moved to ${backup}, starting empty`);
+  } catch (err) {
+    console.warn(`idle history: ${filePath} ${reason}; could not move it aside (${err.message}), starting empty`);
+  }
+  return {};
 }
 
 // Write-then-rename so a crash mid-write never leaves a half-written file behind.
