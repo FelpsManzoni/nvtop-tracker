@@ -72,7 +72,10 @@ it uses that user's `~/.ssh/config` and keys. It does **not** see your
 desktop SSH agent: the keys it needs must be readable without a passphrase
 prompt (e.g. listed via `IdentityFile` in `~/.ssh/config`).
 
-Re-run `install.sh` after moving the repo or changing Node versions.
+Re-run `install.sh` after moving the repo or changing Node versions. It runs
+the service with your nvm default Node if you use nvm, otherwise the `node` on
+your login shell's `PATH`, and refuses anything older than Node 18. To pick a
+specific binary: `sudo NODE=/path/to/node ./deploy/install.sh`.
 
 ```bash
 systemctl status nvtop-tracker
