@@ -66,14 +66,19 @@ const GRAPH_AXIS_TICKS = [100, 75, 50, 25, 0];
 
 const IDLE_GRACE_MS = 60 * 1000;
 
+// hh:mm:ss with unbounded hours (e.g. 212:40:11).
+function fmtDuration(ms) {
+  const total = Math.floor(ms / 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`;
+}
+
 // Idle time is measured on the server's clock (state.timestamp - idleSince) and then
 // advanced by local elapsed time since the update arrived, so browser clock skew doesn't matter.
 function idleLabel(el) {
   const idleMs = Number(el.dataset.idleMs) + (Date.now() - Number(el.dataset.receivedAt));
   if (el.dataset.idleMs === '' || idleMs < IDLE_GRACE_MS) return { text: 'in use', idle: false };
-  const total = Math.floor(idleMs / 1000);
-  const pad = (n) => String(n).padStart(2, '0');
-  return { text: `${pad(Math.floor(total / 3600))}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`, idle: true };
+  return { text: fmtDuration(idleMs), idle: true };
 }
 
 function paintIdle(el) {
@@ -151,11 +156,32 @@ function renderGpuGraphCard(gpu, series, state) {
     </div>`;
 }
 
+function renderIdleHistoryCard(gpus) {
+  const rows = gpus
+    .map(
+      (g) => `
+        <tr>
+          <td>GPU ${g.id}</td>
+          <td>${g.lastIdleMs == null ? '—' : fmtDuration(g.lastIdleMs)}</td>
+          <td>${fmtDuration(g.idle30dMs || 0)}</td>
+        </tr>`
+    )
+    .join('');
+  return `
+    <div class="gpu-graph-card">
+      <div class="gpu-graph-title">Idle history</div>
+      <table class="idle-history">
+        <thead><tr><th>GPU</th><th>Last idle</th><th>Idle (30d)</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderGpuGraphsBody(state) {
   if (!state.gpu.length) return '<div class="empty">No GPU data</div>';
   return `<div class="gpu-graphs-grid">${state.gpu
     .map((g) => renderGpuGraphCard(g, (state.historyByGpu && state.historyByGpu[g.id]) || [], state))
-    .join('')}</div>`;
+    .join('')}${renderIdleHistoryCard(state.gpu)}</div>`;
 }
 
 function renderGpuListBody(state) {

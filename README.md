@@ -17,6 +17,11 @@ just SSH and a couple of standard CLI tools.
 - **Idle timer & owners**: each GPU card shows how long it has been idle
   (`hh:mm:ss`, after 1 minute below 1% utilization) or an "in use" tag,
   plus round avatars of the users currently running processes on it.
+- **Idle history**: an extra card in the GPU graphs shows, per GPU, how long
+  it was idle before it was last taken into use and its total idle time over
+  the past 30 days. Idle periods only count after 10 minutes, and short
+  bursts of activity (10 minutes or less) don't end them. The data is saved
+  to `data/idle-history.json`, so it survives restarts.
 - **Disk usage**: per-mount usage with a configurable alert threshold, plus
   an optional "biggest subfolder" scan for mounts you care about.
 - **Docker & GPU processes**: running containers, images, and which
@@ -92,6 +97,7 @@ the default shown below (see `src/config.js`).
 | `sshRetryMaxAttempts` / `sshRetryDelayMs` | `3` / `5000` | Retry behavior for a failed SSH command, with exponential backoff. |
 | `diskTopFolderMountPrefixes` | `[]` | Mounts (or prefixes) to run the "biggest subfolder" `du` scan against, e.g. `["/data"]`. |
 | `userAvatars` | `{}` | Map of Linux username → profile picture path (relative to the repo root, or absolute), e.g. `{ "f.manzoni": "avatars/f.manzoni.png" }`. Shown as a round avatar on each GPU card for the users running processes on it; unmapped users get an initials badge. The `avatars/` folder is gitignored. |
+| `idleHistoryFile` | `data/idle-history.json` | Where idle history is saved (relative to the repo root, or absolute). Written every minute and on shutdown. The `data/` folder is gitignored. |
 | `duTimeoutSeconds` | `25` | Time limit for the remote `du` scan; a slow/huge filesystem just reports the biggest folder found so far. |
 | `gpuQueryCommand`, `diskQueryCommand`, `dockerQueryCommand`, `dockerImagesQueryCommand`, `gpuUuidQueryCommand`, `gpuProcessesQueryCommand` | — | The exact remote commands used to collect each kind of data, in case you need to adapt them for your environment. |
 

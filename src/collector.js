@@ -1,7 +1,9 @@
 const EventEmitter = require('events');
+const path = require('path');
 const { SSHManager } = require('./sshManager');
 const { RollingBuffer } = require('./rollingBuffer');
-const { IdleTracker } = require('./idleTracker');
+const { IdleHistory } = require('./idleHistory');
+const idleStore = require('./idleStore');
 const {
   parseGpuCsv,
   parseDf,
@@ -19,6 +21,8 @@ function isDataMount(mountpoint, prefixes) {
 function shellQuote(str) {
   return `'${str.replace(/'/g, `'\\''`)}'`;
 }
+
+const IDLE_SAVE_INTERVAL_MS = 60_000;
 
 function initialState(name) {
   return {
@@ -45,11 +49,13 @@ class Collector extends EventEmitter {
     this.processPollsInFlight = new Set();
     this.ssh = new Map();
     this.timers = [];
+    this.idleHistoryFile = path.resolve(__dirname, '..', config.idleHistoryFile);
+    const savedIdle = idleStore.load(this.idleHistoryFile);
 
     for (const server of config.servers) {
       this.state.set(server.name, initialState(server.name));
       this.buffers.set(server.name, new RollingBuffer({ historyMinutes: config.gpuHistoryMinutes }));
-      this.idle.set(server.name, new IdleTracker());
+      this.idle.set(server.name, IdleHistory.fromJSON(savedIdle[server.name]));
       this.ssh.set(
         server.name,
         new SSHManager(server, {
@@ -69,12 +75,26 @@ class Collector extends EventEmitter {
       this.timers.push(setInterval(() => this._pollDisk(server), this.config.diskPollIntervalMs));
       this.timers.push(setInterval(() => this._pollStatus(server), this.config.diskPollIntervalMs));
     }
+    this.timers.push(setInterval(() => this.saveIdleHistory(), IDLE_SAVE_INTERVAL_MS));
   }
 
   stop() {
     for (const timer of this.timers) clearInterval(timer);
     this.timers = [];
+    this.saveIdleHistory();
     for (const ssh of this.ssh.values()) ssh.disconnect();
+  }
+
+  // Never throws: a failed save is logged and retried on the next interval. Servers no longer
+  // in config are dropped from the file (history is keyed by server name).
+  saveIdleHistory() {
+    const servers = {};
+    for (const [name, history] of this.idle) servers[name] = history.toJSON();
+    try {
+      idleStore.save(this.idleHistoryFile, servers);
+    } catch (err) {
+      console.warn(`idle history: saving ${this.idleHistoryFile} failed (${err.message}); will retry`);
+    }
   }
 
   async _pollGpu(server) {
@@ -103,7 +123,7 @@ class Collector extends EventEmitter {
       Object.assign(state, {
         connected: true,
         error: null,
-        gpu: idle.annotate(gpus),
+        gpu: idle.annotate(gpus, now),
         trends: buffer.getTrends(),
         historyByGpu: buffer.getHistoryByGpu(),
         timestamp: Date.now(),

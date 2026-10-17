@@ -45,6 +45,13 @@ collector.on('update', (state) => {
 
 if (require.main === module) {
   collector.start();
+  // systemd stops/restarts send SIGTERM; save idle history before exiting so nothing is lost.
+  const shutdown = () => {
+    collector.stop();
+    process.exit(0);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
   app.listen(config.port, () => {
     console.log(`nvtop-tracker listening on http://localhost:${config.port}`);
     if (config.servers.length === 0) {
