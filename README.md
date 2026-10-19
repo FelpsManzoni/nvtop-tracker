@@ -14,6 +14,9 @@ just SSH and a couple of standard CLI tools.
   focus from the sidebar.
 - **Live GPU metrics**: per-GPU utilization, memory, and temperature,
   polled every couple of seconds with a rolling 5-minute history graph.
+- **MIG partitions**: each partition of a MIG GPU shows as `GPU <n> - <k>`;
+  utilization comes from DCGM (`nv-hostengine` must run on the server),
+  otherwise `n/a`.
 - **Idle timer & owners**: each GPU card shows how long it has been idle
   (`hh:mm:ss`, after 1 minute below 1% utilization) or an "in use" tag,
   plus round avatars of the users currently running processes on it.
@@ -98,6 +101,8 @@ the default shown below (see `src/config.js`).
 | `diskTopFolderMountPrefixes` | `[]` | Mounts (or prefixes) to run the "biggest subfolder" `du` scan against, e.g. `["/data"]`. |
 | `userAvatars` | `{}` | Map of Linux username → profile picture path (relative to the repo root, or absolute), e.g. `{ "f.manzoni": "avatars/f.manzoni.png" }`. Shown as a round avatar on each GPU card for the users running processes on it; unmapped users get an initials badge. The `avatars/` folder is gitignored. |
 | `idleHistoryFile` | `data/idle-history.json` | Where idle history is saved (relative to the repo root, or absolute). Written every minute and on shutdown. The `data/` folder is gitignored. |
+| `migQueryCommand` | `timeout 10 nvidia-smi -q -x -i {gpu}` | Run once per GPU reporting `[N/A]` utilization to list its MIG partitions; `{gpu}` is the GPU index. |
+| `dcgmDiscoveryCommand` / `dcgmActivityCommand` | `timeout 10 dcgmi discovery -c` / `timeout 10 dcgmi dmon -e 1001 -c 2 -d 1000 -i {entities}` | Map partitions to DCGM entities and read their activity; `{entities}` is e.g. `i:49,i:50`. |
 | `duTimeoutSeconds` | `25` | Time limit for the remote `du` scan; a slow/huge filesystem just reports the biggest folder found so far. |
 | `gpuQueryCommand`, `diskQueryCommand`, `dockerQueryCommand`, `dockerImagesQueryCommand`, `gpuUuidQueryCommand`, `gpuProcessesQueryCommand` | — | The exact remote commands used to collect each kind of data, in case you need to adapt them for your environment. |
 

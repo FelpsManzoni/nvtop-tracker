@@ -12,7 +12,11 @@ const {
   parseGpuProcesses,
   parseDuTopFolder,
   parsePsOutput,
+  parseMigXml,
+  parseDcgmDiscovery,
+  parseDcgmDmon,
 } = require('./parsers');
+const { buildGpuEntries, buildGpuProcesses } = require('./mig');
 
 function isDataMount(mountpoint, prefixes) {
   return prefixes.some((prefix) => mountpoint === prefix || mountpoint.startsWith(`${prefix}/`));
@@ -47,6 +51,9 @@ class Collector extends EventEmitter {
     this.buffers = new Map();
     this.idle = new Map();
     this.processPollsInFlight = new Set();
+    this.migPollsInFlight = new Set();
+    this.mig = new Map(); // server -> { byGpu: Map<gpuId, parseMigXml result>, util: Map<"gpu/gi", {value, at}> }
+    this.baseProcesses = new Map();
     this.ssh = new Map();
     this.timers = [];
     this.idleHistoryFile = path.resolve(__dirname, '..', config.idleHistoryFile);
@@ -108,7 +115,7 @@ class Collector extends EventEmitter {
       this.processPollsInFlight.add(server.name);
       this._pollGpuProcesses(ssh)
         .then((processes) => {
-          state.gpuProcesses = processes;
+          this.baseProcesses.set(server.name, processes);
         })
         .finally(() => this.processPollsInFlight.delete(server.name));
     }
@@ -116,16 +123,24 @@ class Collector extends EventEmitter {
       const output = await ssh.exec(this.config.gpuQueryCommand);
       const gpus = parseGpuCsv(output);
       const now = Date.now();
+      const naGpus = gpus.filter((g) => g.utilization === null).map((g) => g.id);
+      if (naGpus.length && !this.migPollsInFlight.has(server.name)) {
+        this.migPollsInFlight.add(server.name);
+        this._pollMig(ssh, server.name, naGpus).finally(() => this.migPollsInFlight.delete(server.name));
+      }
+      const mig = this.mig.get(server.name) || { byGpu: new Map(), util: new Map() };
+      const entries = buildGpuEntries(gpus, mig.byGpu, mig.util, now, 3 * this.config.gpuPollIntervalMs);
       const buffer = this.buffers.get(server.name);
-      buffer.push(gpus, now);
+      buffer.push(entries, now);
       const idle = this.idle.get(server.name);
-      idle.update(gpus, now);
+      idle.update(entries, now);
       Object.assign(state, {
         connected: true,
         error: null,
-        gpu: idle.annotate(gpus, now),
+        gpu: idle.annotate(entries, now),
         trends: buffer.getTrends(),
         historyByGpu: buffer.getHistoryByGpu(),
+        gpuProcesses: buildGpuProcesses(this.baseProcesses.get(server.name) || [], mig.byGpu),
         timestamp: Date.now(),
       });
     } catch (err) {
@@ -208,6 +223,44 @@ class Collector extends EventEmitter {
       return processes;
     } catch {
       return [];
+    }
+  }
+
+  // Never throws and never touches `connected`. A failed XML query drops that GPU back to a
+  // single n/a entry; any DCGM failure keeps the previous readings (staleness nulls them).
+  async _pollMig(ssh, serverName, gpuIndexes) {
+    try {
+      let mig = this.mig.get(serverName);
+      if (!mig) this.mig.set(serverName, (mig = { byGpu: new Map(), util: new Map() }));
+      await Promise.all(
+        gpuIndexes.map(async (i) => {
+          try {
+            const parsed = parseMigXml(await ssh.exec(this.config.migQueryCommand.replace('{gpu}', i)));
+            await this._attachProcessOwners(ssh, parsed.processes);
+            mig.byGpu.set(i, parsed);
+          } catch {
+            mig.byGpu.delete(i);
+          }
+        })
+      );
+      const wanted = [];
+      for (const [gpuId, m] of mig.byGpu) {
+        if (m.migEnabled) for (const d of m.devices) wanted.push(`${gpuId}/${d.gpuInstanceId}`);
+      }
+      if (!wanted.length) return;
+      try {
+        const discovery = parseDcgmDiscovery(await ssh.exec(this.config.dcgmDiscoveryCommand));
+        const entityOf = new Map(wanted.filter((k) => discovery.has(k)).map((k) => [k, discovery.get(k)]));
+        if (!entityOf.size) return;
+        const entities = [...entityOf.values()].map((e) => `i:${e}`).join(',');
+        const dmon = parseDcgmDmon(await ssh.exec(this.config.dcgmActivityCommand.replace('{entities}', entities)));
+        const at = Date.now();
+        for (const [k, e] of entityOf) if (dmon.has(e)) mig.util.set(k, { value: dmon.get(e), at });
+      } catch {
+        // keep previous readings
+      }
+    } catch {
+      // never propagate
     }
   }
 

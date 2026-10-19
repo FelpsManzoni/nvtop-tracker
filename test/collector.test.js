@@ -126,3 +126,69 @@ test('loadConfig rejects a non-string idleHistoryFile', () => {
   fs.writeFileSync(file, JSON.stringify({ idleHistoryFile: 42 }));
   assert.throws(() => loadConfig(file), /idleHistoryFile/);
 });
+
+// Fake SSH for a server with one whole GPU and one MIG GPU (GPU 7 reports [N/A]).
+function setupMig({ dmon, migHang } = {}) {
+  const fx = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8');
+  const collector = new Collector({ ...DEFAULTS, idleHistoryFile: tmpIdleFile(), servers: [{ name: 's', host: 'h' }] });
+  const executed = [];
+  const migCmd = DEFAULTS.migQueryCommand.replace('{gpu}', '7');
+  collector.ssh.set('s', {
+    exec: (cmd) => {
+      executed.push(cmd);
+      if (cmd === DEFAULTS.gpuQueryCommand) {
+        return Promise.resolve('0, NVIDIA H200 NVL, 92, 1685, 143771, 27\n7, NVIDIA H200 NVL, [N/A], 33435, 143771, 47\n');
+      }
+      if (cmd === migCmd) return migHang ? new Promise(() => {}) : Promise.resolve(fx('mig-gpu.xml'));
+      if (cmd === DEFAULTS.dcgmDiscoveryCommand) return Promise.resolve(fx('dcgm-discovery.txt'));
+      if (cmd.startsWith('timeout 10 dcgmi dmon')) return dmon ? dmon() : Promise.resolve(fx('dcgm-dmon.txt'));
+      if (cmd.startsWith('ps ')) return Promise.resolve('3978767 alice python train.py\n');
+      return Promise.resolve('');
+    },
+    disconnect: () => {},
+  });
+  const updates = [];
+  collector.on('update', (s) => updates.push(s));
+  return { collector, updates, executed, server: { name: 's', host: 'h' } };
+}
+
+test('a server with a MIG GPU shows its partitions after the MIG poll lands', async () => {
+  const { collector, updates, server } = setupMig();
+  await collector._pollGpu(server);
+  assert.deepEqual(updates[0].gpu.map((g) => g.key), ['0', '7']);
+  await tick(); await tick(); await tick();
+  await collector._pollGpu(server);
+  const last = updates.at(-1);
+  assert.deepEqual(last.gpu.map((g) => g.key), ['0', '7-1', '7-2', '7-3']);
+  assert.equal(last.gpu[1].utilization, 84.5);
+  assert.equal(last.connected, true);
+});
+
+test('a DCGM failure leaves partitions with unknown utilization and other GPUs untouched', async () => {
+  const { collector, updates, server } = setupMig({ dmon: () => Promise.reject(new Error('connection refused')) });
+  await collector._pollGpu(server);
+  await tick(); await tick(); await tick();
+  await collector._pollGpu(server);
+  const last = updates.at(-1);
+  assert.deepEqual(last.gpu.map((g) => [g.key, g.utilization]), [['0', 92], ['7-1', null], ['7-2', null], ['7-3', null]]);
+  assert.equal(last.connected, true);
+});
+
+test('a server without [N/A] GPUs runs no MIG commands', async () => {
+  const collector = new Collector({ ...DEFAULTS, idleHistoryFile: tmpIdleFile(), servers: [{ name: 's', host: 'h' }] });
+  const executed = [];
+  collector.ssh.set('s', {
+    exec: (cmd) => { executed.push(cmd); return Promise.resolve(cmd === DEFAULTS.gpuQueryCommand ? '0, GPU, 0, 1, 10, 30\n' : ''); },
+    disconnect: () => {},
+  });
+  await collector._pollGpu({ name: 's', host: 'h' });
+  await tick(); await tick();
+  assert.ok(!executed.some((c) => c.includes('nvidia-smi -q -x') || c.includes('dcgmi')));
+});
+
+test('MIG polls do not overlap', async () => {
+  const { collector, executed, server } = setupMig({ migHang: true });
+  await collector._pollGpu(server);
+  await collector._pollGpu(server);
+  assert.equal(executed.filter((c) => c === DEFAULTS.migQueryCommand.replace('{gpu}', '7')).length, 1);
+});

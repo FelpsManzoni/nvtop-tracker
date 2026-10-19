@@ -18,6 +18,10 @@ const DEFAULTS = {
   gpuUuidQueryCommand: 'nvidia-smi --query-gpu=index,uuid --format=csv,noheader',
   gpuProcessesQueryCommand:
     'nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader',
+  // MIG partitions: {gpu} is one GPU index, {entities} is e.g. i:49,i:50 (GPU-instance entity ids).
+  migQueryCommand: 'timeout 10 nvidia-smi -q -x -i {gpu}',
+  dcgmDiscoveryCommand: 'timeout 10 dcgmi discovery -c',
+  dcgmActivityCommand: 'timeout 10 dcgmi dmon -e 1001 -c 2 -d 1000 -i {entities}',
   // Mounts equal to (or nested under) one of these prefixes get a "top offending folder" scan.
   diskTopFolderMountPrefixes: ['/data'],
   duTimeoutSeconds: 25,
