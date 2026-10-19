@@ -204,14 +204,14 @@ function parseMigXml(xml) {
 // Parses `dcgmi discovery -c`: "<gpu>/<gpuInstance>" -> GPU-instance entity id.
 function parseDcgmDiscovery(output) {
   const map = new Map();
-  for (const m of output.matchAll(/I (\d+)\/(\d+)\s*\|.*EntityID:\s*(\d+)/g)) map.set(`${m[1]}/${m[2]}`, Number(m[3]));
+  for (const m of output.matchAll(/I\s+(\d+)\/(\d+)\s*\|.*EntityID:\s*(\d+)/g)) map.set(`${m[1]}/${m[2]}`, Number(m[3]));
   return map;
 }
 
 // Parses `dcgmi dmon` output ("GPU-I <id> <value>" rows): entity id -> last numeric value.
 function parseDcgmDmon(output) {
   const map = new Map();
-  for (const m of output.matchAll(/^GPU-I\s+(\d+)\s+(\S+)/gm)) {
+  for (const m of output.matchAll(/^\s*GPU-I\s+(\d+)\s+(\S+)/gm)) {
     const value = Number(m[2]);
     if (Number.isFinite(value)) map.set(Number(m[1]), value);
   }

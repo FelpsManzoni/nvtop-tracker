@@ -203,3 +203,14 @@ test('parseGpuCsv treats an empty or out-of-range utilization as unknown', () =>
   assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, , 10, 143771, 36\n')[0].utilization, null);
   assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, 250, 10, 143771, 36\n')[0].utilization, null);
 });
+
+test('parseDcgmDmon tolerates indented rows and CRLF line endings', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'fixtures/dcgm-dmon.txt'), 'utf8');
+  const out = raw.split('\n').map((l) => `  ${l}`).join('\r\n');
+  assert.deepEqual([...parseDcgmDmon(out)], [[49, 0.845], [50, 0.871], [51, 0.931]]);
+});
+test('parseDcgmDiscovery tolerates extra spaces and CRLF', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'fixtures/dcgm-discovery.txt'), 'utf8');
+  const out = raw.replace(/I (\d+\/)/g, 'I  $1').replace(/\n/g, '\r\n');
+  assert.deepEqual([...parseDcgmDiscovery(out)], [['7/3', 49], ['7/5', 50], ['7/6', 51]]);
+});
