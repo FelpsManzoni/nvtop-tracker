@@ -24,7 +24,9 @@ function fmtMib(mib) {
 
 function avgGpuUtilization(state) {
   if (!state.gpu.length) return null;
-  return Math.round(state.gpu.reduce((s, g) => s + g.utilization, 0) / state.gpu.length);
+  const known = state.gpu.map((g) => g.utilization).filter(Number.isFinite);
+  if (!known.length) return null;
+  return Math.round(known.reduce((s, u) => s + u, 0) / known.length);
 }
 
 function maxDiskUsage(state) {
@@ -100,10 +102,10 @@ function initials(user) {
     .join('');
 }
 
-function renderGpuOwners(gpuId, processes) {
+function renderGpuOwners(gpuKey, processes) {
   const owners = new Map();
   for (const p of processes) {
-    if (p.gpuId === gpuId && p.owner && !owners.has(p.owner)) owners.set(p.owner, p.avatarUrl);
+    if (p.gpuKey === gpuKey && p.owner && !owners.has(p.owner)) owners.set(p.owner, p.avatarUrl);
   }
   return [...owners]
     .map(([owner, url]) =>
@@ -117,10 +119,15 @@ function renderGpuOwners(gpuId, processes) {
 function renderGpuStatus(gpu, state) {
   // A stale idleSince from before the server went unreachable would otherwise keep counting.
   if (!state.connected) return '<span class="gpu-status"><span class="gpu-offline">offline</span></span>';
+  const owners = renderGpuOwners(gpu.key, state.gpuProcesses || []);
+  // Unknown utilization: no .gpu-idle element, so the 1 s ticker skips it.
+  if (gpu.utilization == null) {
+    return `<span class="gpu-status">${owners}<span class="gpu-tag">${gpu.mig ? 'MIG' : 'n/a'}</span></span>`;
+  }
   const idleMs = gpu.idleSince == null ? '' : state.timestamp - gpu.idleSince;
   return `
     <span class="gpu-status">
-      ${renderGpuOwners(gpu.id, state.gpuProcesses || [])}
+      ${owners}
       <span class="gpu-idle" data-idle-ms="${idleMs}" data-received-at="${state.receivedAt}"></span>
     </span>`;
 }
@@ -131,6 +138,7 @@ function renderGpuGraphCard(gpu, series, state) {
 
   const linePoints = (key) =>
     series
+      .filter((p) => Number.isFinite(p[key]))
       .map((p) => {
         const x = GRAPH_WIDTH - ((now - p.timestamp) / windowMs) * GRAPH_WIDTH;
         const y = GRAPH_HEIGHT - (p[key] / 100) * GRAPH_HEIGHT;
@@ -141,7 +149,7 @@ function renderGpuGraphCard(gpu, series, state) {
   return `
     <div class="gpu-graph-card">
       <div class="gpu-graph-title">
-        GPU ${gpu.id}
+        ${escapeHtml(gpu.label)}
         <span class="legend util">util %</span>
         <span class="legend mem">mem %</span>
         ${renderGpuStatus(gpu, state)}
@@ -161,9 +169,9 @@ function renderIdleHistoryCard(gpus) {
     .map(
       (g) => `
         <tr>
-          <td>GPU ${g.id}</td>
-          <td>${g.lastIdleMs == null ? '—' : fmtDuration(g.lastIdleMs)}</td>
-          <td>${fmtDuration(g.idle30dMs || 0)}</td>
+          <td>${escapeHtml(g.label)}</td>
+          <td>${g.utilization == null ? 'n/a' : g.lastIdleMs == null ? '—' : fmtDuration(g.lastIdleMs)}</td>
+          <td>${g.utilization == null ? 'n/a' : fmtDuration(g.idle30dMs || 0)}</td>
         </tr>`
     )
     .join('');
@@ -180,7 +188,7 @@ function renderIdleHistoryCard(gpus) {
 function renderGpuGraphsBody(state) {
   if (!state.gpu.length) return '<div class="empty">No GPU data</div>';
   return `<div class="gpu-graphs-grid">${state.gpu
-    .map((g) => renderGpuGraphCard(g, (state.historyByGpu && state.historyByGpu[g.id]) || [], state))
+    .map((g) => renderGpuGraphCard(g, (state.historyByGpu && state.historyByGpu[g.key]) || [], state))
     .join('')}${renderIdleHistoryCard(state.gpu)}</div>`;
 }
 
@@ -190,8 +198,8 @@ function renderGpuListBody(state) {
     .map(
       (g) => `
         <div class="gpu-list-row">
-          <span class="gpu-list-name">GPU ${g.id}</span>
-          <span class="gpu-list-stats">${g.utilization}% &middot; ${fmtMib(g.memory.used)}/${fmtMib(g.memory.total)} &middot; ${g.temperature}&deg;C</span>
+          <span class="gpu-list-name">${escapeHtml(g.label)}</span>
+          <span class="gpu-list-stats">${g.utilization == null ? 'n/a' : `${g.utilization}%`} &middot; ${fmtMib(g.memory.used)}/${fmtMib(g.memory.total)} &middot; ${g.temperature}&deg;C</span>
         </div>`
     )
     .join('');
@@ -219,7 +227,7 @@ function renderGpuProcessesBody(state) {
     .map(
       (p) => `
         <div class="process-row">
-          <span class="process-gpu">GPU ${p.gpuId}</span>
+          <span class="process-gpu">${escapeHtml(p.gpuLabel)}</span>
           <span class="process-owner">${escapeHtml(p.owner || '—')}</span>
           <span class="process-cmd" title="${escapeHtml(p.fullCommand)}">${escapeHtml(p.fullCommand)}</span>
           <span class="process-mem">${fmtMib(p.memoryUsedMb)}</span>
