@@ -213,3 +213,22 @@ test('cached MIG state is forgotten when a GPU leaves MIG mode', async () => {
   assert.deepEqual(rows7.map((r) => [r.gpuKey, r.pid]), [['7', 555]]);
   assert.ok(!collector.mig.get('s').util.size);
 });
+
+test('a MIG poll that started before a GPU left and re-entered [N/A] does not publish its stale layout', async () => {
+  const { collector, ctl, updates, server } = setupMig();
+  const migCmd = DEFAULTS.migQueryCommand.replace('{gpu}', '7');
+  const inner = collector.ssh.get('s').exec;
+  let release;
+  collector.ssh.get('s').exec = (cmd) => (cmd === migCmd ? new Promise((r) => (release = r)) : inner(cmd));
+  await collector._pollGpu(server); // poll A starts and hangs
+  ctl.gpu7 = '40';
+  await collector._pollGpu(server); // GPU 7 numeric: evicted
+  ctl.gpu7 = '[N/A]';
+  await collector._pollGpu(server);
+  release(fs.readFileSync(path.join(__dirname, 'fixtures', 'mig-gpu.xml'), 'utf8'));
+  for (let i = 0; i < 6; i++) await tick();
+  await collector._pollGpu(server);
+  const last = updates.at(-1);
+  assert.deepEqual(last.gpu.filter((g) => g.id === 7).map((g) => [g.key, g.utilization]), [['7', null]]);
+  assert.ok(!last.gpu.some((g) => g.key.startsWith('7-')));
+});

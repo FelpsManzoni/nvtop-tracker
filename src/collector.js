@@ -52,7 +52,7 @@ class Collector extends EventEmitter {
     this.idle = new Map();
     this.processPollsInFlight = new Set();
     this.migPollsInFlight = new Set();
-    this.mig = new Map(); // server -> { byGpu: Map<gpuId, parseMigXml result>, util: Map<"gpu/gi", {value, at}> }
+    this.mig = new Map(); // server -> { byGpu: Map<gpuId, parseMigXml result>, util: Map<"gpu/gi", {value, at}>, gen: Map<gpuId, number> } (gen fences off stale polls)
     this.baseProcesses = new Map();
     this.ssh = new Map();
     this.timers = [];
@@ -128,11 +128,12 @@ class Collector extends EventEmitter {
         this.migPollsInFlight.add(server.name);
         this._pollMig(ssh, server.name, naGpus).finally(() => this.migPollsInFlight.delete(server.name));
       }
-      const mig = this.mig.get(server.name) || { byGpu: new Map(), util: new Map() };
+      const mig = this.mig.get(server.name) || { byGpu: new Map(), util: new Map(), gen: new Map() };
       // Forget MIG state for GPUs that are numeric again or no longer listed.
       const stillNa = new Set(naGpus);
-      for (const id of [...mig.byGpu.keys()]) {
+      for (const id of new Set([...mig.byGpu.keys(), ...mig.gen.keys()])) {
         if (stillNa.has(id)) continue;
+        mig.gen.set(id, (mig.gen.get(id) || 0) + 1); // in-flight MIG polls for this GPU are now stale
         mig.byGpu.delete(id);
         for (const k of [...mig.util.keys()]) if (k.startsWith(`${id}/`)) mig.util.delete(k);
       }
@@ -238,15 +239,18 @@ class Collector extends EventEmitter {
   async _pollMig(ssh, serverName, gpuIndexes) {
     try {
       let mig = this.mig.get(serverName);
-      if (!mig) this.mig.set(serverName, (mig = { byGpu: new Map(), util: new Map() }));
+      if (!mig) this.mig.set(serverName, (mig = { byGpu: new Map(), util: new Map(), gen: new Map() }));
+      const gens = new Map(gpuIndexes.map((i) => [i, mig.gen.get(i) || 0]));
+      for (const [i, g] of gens) mig.gen.set(i, g);
+      const fresh = (i) => mig.gen.get(i) === gens.get(i);
       await Promise.all(
         gpuIndexes.map(async (i) => {
           try {
             const parsed = parseMigXml(await ssh.exec(this.config.migQueryCommand.replace('{gpu}', i)));
             await this._attachProcessOwners(ssh, parsed.processes);
-            mig.byGpu.set(i, parsed);
+            if (fresh(i)) mig.byGpu.set(i, parsed);
           } catch {
-            mig.byGpu.delete(i);
+            if (fresh(i)) mig.byGpu.delete(i);
           }
         })
       );
@@ -262,7 +266,9 @@ class Collector extends EventEmitter {
         const entities = [...entityOf.values()].map((e) => `i:${e}`).join(',');
         const dmon = parseDcgmDmon(await ssh.exec(this.config.dcgmActivityCommand.replace('{entities}', entities)));
         const at = Date.now();
-        for (const [k, e] of entityOf) if (dmon.has(e)) mig.util.set(k, { value: dmon.get(e), at });
+        for (const [k, e] of entityOf) {
+          if (dmon.has(e) && fresh(Number(k.split('/')[0]))) mig.util.set(k, { value: dmon.get(e), at });
+        }
       } catch {
         // keep previous readings
       }
