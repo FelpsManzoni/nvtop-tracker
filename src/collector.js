@@ -129,6 +129,13 @@ class Collector extends EventEmitter {
         this._pollMig(ssh, server.name, naGpus).finally(() => this.migPollsInFlight.delete(server.name));
       }
       const mig = this.mig.get(server.name) || { byGpu: new Map(), util: new Map() };
+      // Forget MIG state for GPUs that are numeric again or no longer listed.
+      const stillNa = new Set(naGpus);
+      for (const id of [...mig.byGpu.keys()]) {
+        if (stillNa.has(id)) continue;
+        mig.byGpu.delete(id);
+        for (const k of [...mig.util.keys()]) if (k.startsWith(`${id}/`)) mig.util.delete(k);
+      }
       const entries = buildGpuEntries(gpus, mig.byGpu, mig.util, now, 3 * this.config.gpuPollIntervalMs);
       const buffer = this.buffers.get(server.name);
       buffer.push(entries, now);

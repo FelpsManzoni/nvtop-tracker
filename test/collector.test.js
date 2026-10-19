@@ -129,6 +129,7 @@ test('loadConfig rejects a non-string idleHistoryFile', () => {
 
 // Fake SSH for a server with one whole GPU and one MIG GPU (GPU 7 reports [N/A]).
 function setupMig({ dmon, migHang } = {}) {
+  const ctl = { gpu7: '[N/A]' };
   const fx = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8');
   const collector = new Collector({ ...DEFAULTS, idleHistoryFile: tmpIdleFile(), servers: [{ name: 's', host: 'h' }] });
   const executed = [];
@@ -137,8 +138,10 @@ function setupMig({ dmon, migHang } = {}) {
     exec: (cmd) => {
       executed.push(cmd);
       if (cmd === DEFAULTS.gpuQueryCommand) {
-        return Promise.resolve('0, NVIDIA H200 NVL, 92, 1685, 143771, 27\n7, NVIDIA H200 NVL, [N/A], 33435, 143771, 47\n');
+        return Promise.resolve(`0, NVIDIA H200 NVL, 92, 1685, 143771, 27\n7, NVIDIA H200 NVL, ${ctl.gpu7}, 33435, 143771, 47\n`);
       }
+      if (cmd === DEFAULTS.gpuUuidQueryCommand) return Promise.resolve('0, GPU-a\n7, GPU-b\n');
+      if (cmd === DEFAULTS.gpuProcessesQueryCommand) return Promise.resolve('GPU-b, 555, /usr/bin/python, 100\n');
       if (cmd === migCmd) return migHang ? new Promise(() => {}) : Promise.resolve(fx('mig-gpu.xml'));
       if (cmd === DEFAULTS.dcgmDiscoveryCommand) return Promise.resolve(fx('dcgm-discovery.txt'));
       if (cmd.startsWith('timeout 10 dcgmi dmon')) return dmon ? dmon() : Promise.resolve(fx('dcgm-dmon.txt'));
@@ -149,7 +152,7 @@ function setupMig({ dmon, migHang } = {}) {
   });
   const updates = [];
   collector.on('update', (s) => updates.push(s));
-  return { collector, updates, executed, server: { name: 's', host: 'h' } };
+  return { collector, ctl, updates, executed, server: { name: 's', host: 'h' } };
 }
 
 test('a server with a MIG GPU shows its partitions after the MIG poll lands', async () => {
@@ -191,4 +194,22 @@ test('MIG polls do not overlap', async () => {
   await collector._pollGpu(server);
   await collector._pollGpu(server);
   assert.equal(executed.filter((c) => c === DEFAULTS.migQueryCommand.replace('{gpu}', '7')).length, 1);
+});
+
+test('cached MIG state is forgotten when a GPU leaves MIG mode', async () => {
+  const { collector, ctl, updates, server } = setupMig();
+  await collector._pollGpu(server);
+  for (let i = 0; i < 4; i++) await tick();
+  await collector._pollGpu(server);
+  let last = updates.at(-1);
+  assert.deepEqual(last.gpu.map((g) => g.key), ['0', '7-1', '7-2', '7-3']);
+  assert.ok(last.gpuProcesses.some((r) => r.gpuKey === '7-1'));
+
+  ctl.gpu7 = '40';
+  await collector._pollGpu(server);
+  last = updates.at(-1);
+  assert.deepEqual(last.gpu.map((g) => [g.key, g.utilization]), [['0', 92], ['7', 40]]);
+  const rows7 = last.gpuProcesses.filter((r) => r.gpuId === 7);
+  assert.deepEqual(rows7.map((r) => [r.gpuKey, r.pid]), [['7', 555]]);
+  assert.ok(!collector.mig.get('s').util.size);
 });
