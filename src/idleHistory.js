@@ -17,7 +17,7 @@ class IdleHistory {
       // Hand-edited or damaged files: keep only finite timestamps and well-formed periods.
       const s = raw && typeof raw === 'object' ? raw : {};
       const time = (v) => (Number.isFinite(v) ? v : null);
-      this.gpus.set(Number(id), {
+      this.gpus.set(id, {
         idleSince: time(s.idleSince),
         busySince: time(s.busySince),
         openStart: time(s.openStart),
@@ -34,9 +34,10 @@ class IdleHistory {
   }
 
   update(gpus, now = Date.now()) {
-    for (const { id, utilization } of gpus) {
-      if (!this.gpus.has(id)) this.gpus.set(id, freshGpu());
-      const s = this.gpus.get(id);
+    for (const { key, utilization } of gpus) {
+      if (!Number.isFinite(utilization)) continue; // unknown utilization: leave state untouched
+      if (!this.gpus.has(key)) this.gpus.set(key, freshGpu());
+      const s = this.gpus.get(key);
 
       // A long gap, or the clock moving backwards, means we don't know what happened in between.
       if (s.lastSampleAt !== null && (now < s.lastSampleAt || now - s.lastSampleAt > GAP_MS)) {
@@ -65,8 +66,8 @@ class IdleHistory {
     }
   }
 
-  summary(id, now = Date.now()) {
-    const s = this.gpus.get(id);
+  summary(key, now = Date.now()) {
+    const s = this.gpus.get(key);
     if (!s) return { idleSince: null, lastIdleMs: null, idle30dMs: 0 };
     const from = now - WINDOW_MS;
     const overlap = (start, end) => Math.max(0, Math.min(end, now) - Math.max(start, from));
@@ -77,7 +78,7 @@ class IdleHistory {
   }
 
   annotate(gpus, now = Date.now()) {
-    return gpus.map((g) => ({ ...g, ...this.summary(g.id, now) }));
+    return gpus.map((g) => ({ ...g, ...this.summary(g.key, now) }));
   }
 
   toJSON() {

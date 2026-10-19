@@ -1,0 +1,8 @@
+#Entity         GRACT        
+ID                           
+GPU-I 49        N/A          
+GPU-I 50        N/A          
+GPU-I 51        N/A          
+GPU-I 49        0.845        
+GPU-I 50        0.871        
+GPU-I 51        0.931        

@@ -32,12 +32,14 @@ function parseGpuCsv(output) {
     const parts = line.split(',').map((s) => s.trim());
     if (parts.length !== 6) continue;
     const [idStr, name, utilStr, memUsedStr, memTotalStr, tempStr] = parts;
-    const [id, utilization, memUsed, memTotal, temperature] = [idStr, utilStr, memUsedStr, memTotalStr, tempStr].map(
-      Number
-    );
-    if (!name || [id, utilization, memUsed, memTotal, temperature].some(Number.isNaN)) continue;
+    const [id, memUsed, memTotal, temperature] = [idStr, memUsedStr, memTotalStr, tempStr].map(Number);
+    // Utilization may be "[N/A]" (e.g. MIG-enabled GPUs): keep the GPU with utilization null.
+    const utilization = utilStr === '' || Number.isNaN(Number(utilStr)) ? null : Number(utilStr);
+    if (!name || [id, memUsed, memTotal, temperature].some(Number.isNaN)) continue;
     gpus.push({
       id,
+      key: String(id),
+      label: `GPU ${id}`,
       name,
       utilization,
       memory: { used: memUsed, total: memTotal },
@@ -93,6 +95,8 @@ function parseGpuProcesses(processOutput, uuidOutput) {
     if (Number.isNaN(memoryUsedMb)) continue;
     processes.push({
       gpuId: uuidToIndex.get(uuid),
+      gpuKey: String(uuidToIndex.get(uuid)),
+      gpuLabel: `GPU ${uuidToIndex.get(uuid)}`,
       pid: Number(pidStr),
       process: processPath.split('/').pop(),
       fullCommand: processPath,
@@ -160,7 +164,62 @@ function parseDuTopFolder(output, mountpoint) {
   return best;
 }
 
+const mib = (v) => parseInt(v, 10);
+const tag = (block, name) => (block.match(new RegExp(`<${name}>\\s*([^<]*?)\\s*</${name}>`)) || [])[1];
+
+// Parses single-GPU `nvidia-smi -q -x` output: MIG partitions (framebuffer memory) and processes.
+function parseMigXml(xml) {
+  const result = { migEnabled: false, devices: [], processes: [] };
+  if (typeof xml !== 'string') return result;
+  result.migEnabled = tag(xml, 'current_mig') === 'Enabled';
+  for (const m of xml.matchAll(/<mig_device>([\s\S]*?)<\/mig_device>/g)) {
+    const fb = (m[1].match(/<fb_memory_usage>([\s\S]*?)<\/fb_memory_usage>/) || [])[1] || '';
+    const dev = {
+      migIndex: Number(tag(m[1], 'index')),
+      gpuInstanceId: Number(tag(m[1], 'gpu_instance_id')),
+      memory: { used: mib(tag(fb, 'used')), total: mib(tag(fb, 'total')) },
+    };
+    if (Number.isNaN(dev.migIndex) || Number.isNaN(dev.gpuInstanceId) || Number.isNaN(dev.memory.used) || Number.isNaN(dev.memory.total)) continue;
+    result.devices.push(dev);
+  }
+  for (const m of xml.matchAll(/<process_info>([\s\S]*?)<\/process_info>/g)) {
+    const gi = Number(tag(m[1], 'gpu_instance_id'));
+    const name = tag(m[1], 'process_name') || '';
+    const pid = Number(tag(m[1], 'pid'));
+    const memoryUsedMb = mib(tag(m[1], 'used_memory'));
+    if (Number.isNaN(pid) || Number.isNaN(memoryUsedMb)) continue;
+    result.processes.push({
+      gpuInstanceId: Number.isNaN(gi) ? null : gi,
+      pid,
+      process: name.split('/').pop(),
+      fullCommand: name,
+      memoryUsedMb,
+    });
+  }
+  return result;
+}
+
+// Parses `dcgmi discovery -c`: "<gpu>/<gpuInstance>" -> GPU-instance entity id.
+function parseDcgmDiscovery(output) {
+  const map = new Map();
+  for (const m of output.matchAll(/I (\d+)\/(\d+)\s*\|.*EntityID:\s*(\d+)/g)) map.set(`${m[1]}/${m[2]}`, Number(m[3]));
+  return map;
+}
+
+// Parses `dcgmi dmon` output ("GPU-I <id> <value>" rows): entity id -> last numeric value.
+function parseDcgmDmon(output) {
+  const map = new Map();
+  for (const m of output.matchAll(/^GPU-I\s+(\d+)\s+(\S+)/gm)) {
+    const value = Number(m[2]);
+    if (Number.isFinite(value)) map.set(Number(m[1]), value);
+  }
+  return map;
+}
+
 module.exports = {
+  parseMigXml,
+  parseDcgmDiscovery,
+  parseDcgmDmon,
   parseGpuCsv,
   parseDf,
   parseDockerPs,

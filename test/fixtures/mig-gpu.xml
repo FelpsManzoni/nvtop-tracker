@@ -1,0 +1,88 @@
+<?xml version="1.0" ?>
+<nvidia_smi_log>
+	<gpu id="00000000:00:00.0">
+		<mig_mode>
+			<current_mig>Enabled</current_mig>
+			<pending_mig>Enabled</pending_mig>
+		</mig_mode>
+		<mig_devices>
+			<mig_device>
+				<index>0</index>
+				<gpu_instance_id>3</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<fb_memory_usage>
+					<total>33280 MiB</total>
+					<reserved>0 MiB</reserved>
+					<used>831 MiB</used>
+					<free>32449 MiB</free>
+				</fb_memory_usage>
+				<bar1_memory_usage>
+					<total>65535 MiB</total>
+					<used>2 MiB</used>
+					<free>65532 MiB</free>
+				</bar1_memory_usage>
+			</mig_device>
+			<mig_device>
+				<index>1</index>
+				<gpu_instance_id>5</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<fb_memory_usage>
+					<total>33280 MiB</total>
+					<reserved>0 MiB</reserved>
+					<used>13433 MiB</used>
+					<free>19847 MiB</free>
+				</fb_memory_usage>
+				<bar1_memory_usage>
+					<total>65535 MiB</total>
+					<used>2 MiB</used>
+					<free>65532 MiB</free>
+				</bar1_memory_usage>
+			</mig_device>
+			<mig_device>
+				<index>2</index>
+				<gpu_instance_id>6</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<fb_memory_usage>
+					<total>33280 MiB</total>
+					<reserved>0 MiB</reserved>
+					<used>19171 MiB</used>
+					<free>14109 MiB</free>
+				</fb_memory_usage>
+				<bar1_memory_usage>
+					<total>65535 MiB</total>
+					<used>2 MiB</used>
+					<free>65532 MiB</free>
+				</bar1_memory_usage>
+			</mig_device>
+		</mig_devices>
+		<minor_number>7</minor_number>
+		<fb_memory_usage><total>143771 MiB</total><used>33435 MiB</used></fb_memory_usage>
+		<temperature><gpu_temp>47 C</gpu_temp></temperature>
+		<processes>
+			<process_info>
+				<gpu_instance_id>3</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<pid>3978767</pid>
+				<type>C</type>
+				<process_name>python</process_name>
+				<used_memory>740 MiB</used_memory>
+			</process_info>
+			<process_info>
+				<gpu_instance_id>5</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<pid>120122</pid>
+				<type>C</type>
+				<process_name>python</process_name>
+				<used_memory>13342 MiB</used_memory>
+			</process_info>
+			<process_info>
+				<gpu_instance_id>6</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<pid>31391</pid>
+				<type>C</type>
+				<process_name>/data/x/.venv/bin/python</process_name>
+				<used_memory>19134 MiB</used_memory>
+			</process_info>
+		</processes>
+	</gpu>
+</nvidia_smi_log>

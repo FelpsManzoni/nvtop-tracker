@@ -1,4 +1,6 @@
 const test = require('node:test');
+const fs = require('node:fs');
+const path = require('node:path');
 const assert = require('node:assert/strict');
 const {
   parseGpuCsv,
@@ -8,14 +10,17 @@ const {
   parseGpuProcesses,
   parseDuTopFolder,
   parsePsOutput,
+  parseMigXml,
+  parseDcgmDiscovery,
+  parseDcgmDmon,
 } = require('../src/parsers');
 
 test('parseGpuCsv parses nvidia-smi csv output including GPU name', () => {
   const output = '0, NVIDIA H200 NVL, 85, 7500, 8000, 65\n1, NVIDIA H200 NVL, 12, 400, 8000, 40\n';
   const gpus = parseGpuCsv(output);
   assert.deepEqual(gpus, [
-    { id: 0, name: 'NVIDIA H200 NVL', utilization: 85, memory: { used: 7500, total: 8000 }, temperature: 65 },
-    { id: 1, name: 'NVIDIA H200 NVL', utilization: 12, memory: { used: 400, total: 8000 }, temperature: 40 },
+    { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA H200 NVL', utilization: 85, memory: { used: 7500, total: 8000 }, temperature: 65 },
+    { id: 1, key: '1', label: 'GPU 1', name: 'NVIDIA H200 NVL', utilization: 12, memory: { used: 400, total: 8000 }, temperature: 40 },
   ]);
 });
 
@@ -95,8 +100,8 @@ test('parseGpuProcesses joins compute-apps output with gpu_uuid->index mapping',
     '',
   ].join('\n');
   assert.deepEqual(parseGpuProcesses(procOutput, uuidOutput), [
-    { gpuId: 0, pid: 1016695, process: 'python', fullCommand: '/data/venv/bin/python', memoryUsedMb: 50956 },
-    { gpuId: 1, pid: 3908334, process: 'python3', fullCommand: '/data/venv/bin/python3', memoryUsedMb: 1832 },
+    { gpuId: 0, gpuKey: '0', gpuLabel: 'GPU 0', pid: 1016695, process: 'python', fullCommand: '/data/venv/bin/python', memoryUsedMb: 50956 },
+    { gpuId: 1, gpuKey: '1', gpuLabel: 'GPU 1', pid: 3908334, process: 'python3', fullCommand: '/data/venv/bin/python3', memoryUsedMb: 1832 },
   ]);
 });
 
@@ -145,4 +150,47 @@ test('parseDuTopFolder returns null when there are no subfolders (or the scan pr
 test('parsePsOutput keeps usernames longer than 8 chars from `ps -o user:64=`', () => {
   const byPid = parsePsOutput('42 f.manzoni                                                         python train.py\n');
   assert.deepEqual(byPid.get(42), { user: 'f.manzoni', args: 'python train.py' });
+});
+
+test('parseGpuCsv keeps a GPU whose utilization is [N/A] and adds key/label', () => {
+  const gpus = parseGpuCsv('0, NVIDIA H200 NVL, 92, 71701, 143771, 47\n7, NVIDIA H200 NVL, [N/A], 10301, 143771, 36\n');
+  assert.deepEqual(gpus.map((g) => [g.key, g.label, g.utilization]), [['0', 'GPU 0', 92], ['7', 'GPU 7', null]]);
+  assert.deepEqual(gpus[1].memory, { used: 10301, total: 143771 });
+});
+test('parseGpuCsv still drops a line whose memory or temperature is not numeric', () => {
+  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, 5, [N/A], 143771, 36\n').length, 0);
+});
+test('parseGpuProcesses rows carry gpuKey and gpuLabel', () => {
+  const rows = parseGpuProcesses('GPU-aaaa, 1016695, /data/venv/bin/python, 50956 MiB\n', '0, GPU-aaaa\n');
+  assert.equal(rows[0].gpuKey, String(rows[0].gpuId));
+  assert.equal(rows[0].gpuKey, '0');
+  assert.equal(rows[0].gpuLabel, 'GPU 0');
+});
+test('parseMigXml reads partitions (framebuffer, not BAR1) and per-partition processes', () => {
+  const r = parseMigXml(fs.readFileSync(path.join(__dirname, 'fixtures/mig-gpu.xml'), 'utf8'));
+  assert.equal(r.migEnabled, true);
+  assert.deepEqual(r.devices.map((d) => [d.migIndex, d.gpuInstanceId, d.memory.used, d.memory.total]),
+    [[0, 3, 831, 33280], [1, 5, 13433, 33280], [2, 6, 19171, 33280]]);
+  assert.deepEqual(r.processes.map((p) => [p.gpuInstanceId, p.pid, p.process, p.memoryUsedMb]),
+    [[3, 3978767, 'python', 740], [5, 120122, 'python', 13342], [6, 31391, 'python', 19134]]);
+});
+test('parseMigXml on a non-MIG GPU', () => {
+  const r = parseMigXml(fs.readFileSync(path.join(__dirname, 'fixtures/mig-disabled.xml'), 'utf8'));
+  assert.equal(r.migEnabled, false);
+  assert.deepEqual(r.devices, []);
+  assert.equal(r.processes[0].gpuInstanceId, null);
+});
+test('parseMigXml returns migEnabled false and no devices for garbage', () => {
+  assert.deepEqual(parseMigXml('not xml'), { migEnabled: false, devices: [], processes: [] });
+});
+test('parseDcgmDiscovery maps gpu/instance to entity id', () => {
+  const m = parseDcgmDiscovery(fs.readFileSync(path.join(__dirname, 'fixtures/dcgm-discovery.txt'), 'utf8'));
+  assert.deepEqual([...m], [['7/3', 49], ['7/5', 50], ['7/6', 51]]);
+});
+test('parseDcgmDmon keeps the last numeric value per entity and ignores N/A warm-up rows', () => {
+  const m = parseDcgmDmon(fs.readFileSync(path.join(__dirname, 'fixtures/dcgm-dmon.txt'), 'utf8'));
+  assert.deepEqual([...m], [[49, 0.845], [50, 0.871], [51, 0.931]]);
+});
+test('parseDcgmDmon returns an empty map for the host-engine error text', () => {
+  assert.equal(parseDcgmDmon('Error: Unable to connect to host engine. Host engine connection invalid/disconnected.').size, 0);
 });

@@ -4,7 +4,7 @@ const { RollingBuffer } = require('../src/rollingBuffer');
 
 function gpuSnapshot(utils, mem = []) {
   return utils.map((u, id) => ({
-    id,
+    key: String(id),
     utilization: u,
     memory: mem[id] || { used: 0, total: 0 },
     temperature: 0,
@@ -29,7 +29,7 @@ test('RollingBuffer discards samples older than historyMinutes', () => {
   buf.push(gpuSnapshot([10]), now - 1000);
   const trends = buf.getTrends(now);
   assert.equal(trends.gpuMaxUtilization5m, 10);
-  assert.equal(buf.getHistoryByGpu()[0].length, 1);
+  assert.equal(buf.getHistoryByGpu()['0'].length, 1);
 });
 
 test('RollingBuffer.getTrends returns nulls when no samples exist', () => {
@@ -56,5 +56,17 @@ test('RollingBuffer.getHistoryByGpu handles zero-total memory without dividing b
   const buf = new RollingBuffer({ historyMinutes: 5 });
   const now = 1_000_000;
   buf.push(gpuSnapshot([10]), now);
-  assert.deepEqual(buf.getHistoryByGpu()[0], [{ timestamp: now, utilization: 10, memoryPercent: 0 }]);
+  assert.deepEqual(buf.getHistoryByGpu()['0'], [{ timestamp: now, utilization: 10, memoryPercent: 0 }]);
+});
+
+test('RollingBuffer.getTrends ignores null utilizations; all-null gives null trends', () => {
+  const buf = new RollingBuffer({ historyMinutes: 5 });
+  const now = 1_000_000;
+  buf.push([{ key: '0', utilization: 50, memory: { used: 0, total: 0 } }, { key: '7-1', utilization: null, memory: { used: 0, total: 0 } }], now);
+  assert.equal(buf.getTrends(now).gpuAvgUtilization1m, 50);
+  assert.deepEqual(Object.keys(buf.getHistoryByGpu()), ['0', '7-1']);
+  assert.equal(buf.getHistoryByGpu()['7-1'][0].utilization, null);
+  const nulls = new RollingBuffer({ historyMinutes: 5 });
+  nulls.push([{ key: '7-1', utilization: null, memory: { used: 0, total: 0 } }], now);
+  assert.deepEqual(nulls.getTrends(now), { gpuAvgUtilization1m: null, gpuAvgUtilization5m: null, gpuMaxUtilization5m: null });
 });

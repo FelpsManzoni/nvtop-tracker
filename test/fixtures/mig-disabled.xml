@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<nvidia_smi_log>
+	<gpu id="00000000:00:00.0">
+		<mig_mode>
+			<current_mig>Disabled</current_mig>
+			<pending_mig>Disabled</pending_mig>
+		</mig_mode>
+		<mig_devices>
+		</mig_devices>
+		<minor_number>7</minor_number>
+		<fb_memory_usage><total>143771 MiB</total><used>33435 MiB</used></fb_memory_usage>
+		<temperature><gpu_temp>47 C</gpu_temp></temperature>
+		<processes>
+			<process_info>
+				<gpu_instance_id>N/A</gpu_instance_id>
+				<compute_instance_id>0</compute_instance_id>
+				<pid>4242</pid>
+				<type>C</type>
+				<process_name>python</process_name>
+				<used_memory>500 MiB</used_memory>
+			</process_info>
+		</processes>
+	</gpu>
+</nvidia_smi_log>

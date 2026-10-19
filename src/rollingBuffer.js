@@ -16,7 +16,7 @@ class RollingBuffer {
     const values = [];
     for (const sample of this.samples) {
       if (sample.timestamp >= now - sinceMs) {
-        for (const gpu of sample.gpus) values.push(gpu.utilization);
+        for (const gpu of sample.gpus) if (gpu.utilization !== null) values.push(gpu.utilization);
       }
     }
     return values;
@@ -37,9 +37,9 @@ class RollingBuffer {
     const byGpu = {};
     for (const { timestamp, gpus } of this.samples) {
       for (const gpu of gpus) {
-        if (!byGpu[gpu.id]) byGpu[gpu.id] = [];
+        if (!byGpu[gpu.key]) byGpu[gpu.key] = [];
         const memoryPercent = gpu.memory.total ? (gpu.memory.used / gpu.memory.total) * 100 : 0;
-        byGpu[gpu.id].push({ timestamp, utilization: gpu.utilization, memoryPercent });
+        byGpu[gpu.key].push({ timestamp, utilization: gpu.utilization, memoryPercent });
       }
     }
     return byGpu;
