@@ -194,3 +194,12 @@ test('parseDcgmDmon keeps the last numeric value per entity and ignores N/A warm
 test('parseDcgmDmon returns an empty map for the host-engine error text', () => {
   assert.equal(parseDcgmDmon('Error: Unable to connect to host engine. Host engine connection invalid/disconnected.').size, 0);
 });
+
+test('parseGpuCsv drops a line with an empty required field', () => {
+  assert.deepEqual(parseGpuCsv('7, NVIDIA H200 NVL, 5, , 143771, 36\n'), []);
+  assert.deepEqual(parseGpuCsv('7, NVIDIA H200 NVL, 5, 10, 143771, \n'), []);
+});
+test('parseGpuCsv treats an empty or out-of-range utilization as unknown', () => {
+  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, , 10, 143771, 36\n')[0].utilization, null);
+  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, 250, 10, 143771, 36\n')[0].utilization, null);
+});

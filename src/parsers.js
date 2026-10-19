@@ -32,9 +32,11 @@ function parseGpuCsv(output) {
     const parts = line.split(',').map((s) => s.trim());
     if (parts.length !== 6) continue;
     const [idStr, name, utilStr, memUsedStr, memTotalStr, tempStr] = parts;
-    const [id, memUsed, memTotal, temperature] = [idStr, memUsedStr, memTotalStr, tempStr].map(Number);
-    // Utilization may be "[N/A]" (e.g. MIG-enabled GPUs): keep the GPU with utilization null.
-    const utilization = utilStr === '' || Number.isNaN(Number(utilStr)) ? null : Number(utilStr);
+    const num = (str) => (str === '' ? NaN : Number(str)); // Number('') is 0, which would fake telemetry
+    const [id, memUsed, memTotal, temperature] = [idStr, memUsedStr, memTotalStr, tempStr].map(num);
+    // Utilization may be "[N/A]" (e.g. MIG-enabled GPUs) or otherwise unusable: keep the GPU with null.
+    const u = num(utilStr);
+    const utilization = Number.isFinite(u) && u >= 0 && u <= 100 ? u : null;
     if (!name || [id, memUsed, memTotal, temperature].some(Number.isNaN)) continue;
     gpus.push({
       id,
