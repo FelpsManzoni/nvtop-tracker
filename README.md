@@ -25,6 +25,9 @@ just SSH and a couple of standard CLI tools.
   the past 30 days. Idle periods only count after 10 minutes, and short
   bursts of activity (10 minutes or less) don't end them. The data is saved
   to `data/idle-history.json`, so it survives restarts.
+- **Teams alerts**: optional. GPUs idle for 12 h or more are reported every
+  12 h in one batched message; a server unreachable for 5 minutes gets an
+  alert with hourly reminders and a recovery message when it is back.
 - **Disk usage**: per-mount usage with a configurable alert threshold, plus
   an optional "biggest subfolder" scan for mounts you care about.
 - **Docker & GPU processes**: running containers, images, and which
@@ -104,10 +107,25 @@ the default shown below (see `src/config.js`).
 | `diskTopFolderMountPrefixes` | `[]` | Mounts (or prefixes) to run the "biggest subfolder" `du` scan against, e.g. `["/data"]`. |
 | `userAvatars` | `{}` | Map of Linux username → profile picture path (relative to the repo root, or absolute), e.g. `{ "f.manzoni": "avatars/f.manzoni.png" }`. Shown as a round avatar on each GPU card for the users running processes on it; unmapped users get an initials badge. The `avatars/` folder is gitignored. |
 | `idleHistoryFile` | `data/idle-history.json` | Where idle history is saved (relative to the repo root, or absolute). Written every minute and on shutdown. The `data/` folder is gitignored. |
+| `teamsWebhookUrl` | `""` | Teams Workflows webhook URL for idle-GPU and unreachable-server alerts (see [Teams notifications](#teams-notifications)). Empty disables them. |
 | `migQueryCommand` | `timeout 10 nvidia-smi -q -x -i {gpu}` | Run once per GPU reporting `[N/A]` utilization to list its MIG partitions; `{gpu}` is the GPU index. |
 | `dcgmDiscoveryCommand` / `dcgmActivityCommand` | `timeout 10 dcgmi discovery -c` / `timeout 10 dcgmi dmon -e 1001 -c 2 -d 1000 -i {entities}` | Map partitions to DCGM entities and read their activity; `{entities}` is e.g. `i:49,i:50`. |
 | `duTimeoutSeconds` | `25` | Time limit for the remote `du` scan; a slow/huge filesystem just reports the biggest folder found so far. |
 | `gpuQueryCommand`, `diskQueryCommand`, `dockerQueryCommand`, `dockerImagesQueryCommand`, `gpuUuidQueryCommand`, `gpuProcessesQueryCommand` | — | The exact remote commands used to collect each kind of data, in case you need to adapt them for your environment. |
+
+## Teams notifications
+
+Set `teamsWebhookUrl` (empty disables them) to a Teams Workflows webhook:
+
+1. In the Teams channel, click "..." and choose Workflows.
+2. Pick "Send webhook alerts to a channel".
+3. Set the trigger access to "Anyone".
+4. Copy the full URL into `teamsWebhookUrl` in `config.json`. On zsh, make sure
+   the pasted URL contains no `\` (zsh adds one before `=` and `?`).
+
+The URL is a secret: it is never logged or sent to the browser. Sent-message
+state is kept in `notifier-state.json` next to the idle history, so a restart
+does not repeat alerts.
 
 ## Development
 

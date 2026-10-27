@@ -22,5 +22,6 @@
   "diskTopFolderMountPrefixes": ["/data"],
   "duTimeoutSeconds": 25,
   "userAvatars": { "f.manzoni": "avatars/f.manzoni.png" },
-  "idleHistoryFile": "data/idle-history.json"
+  "idleHistoryFile": "data/idle-history.json",
+  "teamsWebhookUrl": ""
 }
