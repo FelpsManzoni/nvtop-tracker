@@ -327,3 +327,17 @@ test('start() registers a second 60 s timer for the notifier when a URL is set',
   assert.strictEqual(set.mock.calls.filter((c) => c.arguments[1] === 60_000).length, 2);
   collector.stop();
 });
+
+test('overlapping notifier ticks do not double-send', async () => {
+  const { collector, cards, server } = setupNotify();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  collector.notifier.send = (card) => { cards.push(card); return held; };
+  const T = Date.now();
+  await collector._pollGpu(server);
+  const a = collector.tickNotifier(T + 301_000);
+  const b = collector.tickNotifier(T + 302_000);
+  release();
+  await Promise.all([a, b]);
+  assert.strictEqual(cards.length, 1);
+});

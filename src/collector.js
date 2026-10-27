@@ -122,11 +122,14 @@ class Collector extends EventEmitter {
 
   // Never throws (Notifier.tick handles send failures); no-op without a webhook.
   async tickNotifier(now = Date.now()) {
-    if (!this.notifier) return;
+    if (!this.notifier || this.notifierTicking) return; // a slow POST must not let a second tick resend
+    this.notifierTicking = true;
     try {
       await this.notifier.tick(now);
     } catch (err) {
       console.warn(`notifier: tick failed (${err.message})`);
+    } finally {
+      this.notifierTicking = false;
     }
   }
 
