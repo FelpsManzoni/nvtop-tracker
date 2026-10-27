@@ -67,6 +67,8 @@ const GRAPH_HEIGHT = 140;
 const GRAPH_AXIS_TICKS = [100, 75, 50, 25, 0];
 
 const IDLE_GRACE_MS = 60 * 1000;
+const IDLE_WARN_MS = 4 * 3600_000;
+const IDLE_ALERT_MS = 12 * 3600_000;
 
 // hh:mm:ss with unbounded hours (e.g. 212:40:11).
 function fmtDuration(ms) {
@@ -79,14 +81,21 @@ function fmtDuration(ms) {
 // advanced by local elapsed time since the update arrived, so browser clock skew doesn't matter.
 function idleLabel(el) {
   const idleMs = Number(el.dataset.idleMs) + (Date.now() - Number(el.dataset.receivedAt));
-  if (el.dataset.idleMs === '' || idleMs < IDLE_GRACE_MS) return { text: 'in use', idle: false };
-  return { text: fmtDuration(idleMs), idle: true };
+  if (el.dataset.idleMs === '' || idleMs < IDLE_GRACE_MS) return { text: 'in use', idle: false, idleMs: 0 };
+  return { text: fmtDuration(idleMs), idle: true, idleMs };
 }
 
 function paintIdle(el) {
-  const { text, idle } = idleLabel(el);
-  el.textContent = text;
+  const { text, idle, idleMs } = idleLabel(el);
+  const alert = idle && idleMs >= IDLE_ALERT_MS;
+  el.textContent = alert ? `! ${text}` : text;
   el.classList.toggle('idle', idle);
+  el.classList.toggle('alert', alert);
+  const card = el.closest('.gpu-graph-card');
+  if (card) {
+    card.classList.toggle('idle-warn', idle && idleMs >= IDLE_WARN_MS && !alert);
+    card.classList.toggle('idle-alert', alert);
+  }
 }
 
 // Ticks only the idle labels between ~2s SSE renders, so the timer counts smoothly
