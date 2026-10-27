@@ -103,3 +103,19 @@ test('40 rows with 700-char names and labels stay under 28 KB', () => {
   const rows = Array.from({ length: 40 }, (_, i) => ({ server: 'S'.repeat(700), label: 'L'.repeat(700), idleMs: i * 3600_000 }));
   assert.ok(Buffer.byteLength(JSON.stringify(envelope(idleCard(rows)))) < 28 * 1024);
 });
+
+test('idleCard caps rows at 30 and summarises the rest', () => {
+  const rows = Array.from({ length: 45 }, (_, i) => ({ server: `S${i}`, label: 'G', idleMs: i * 3600_000 }));
+  const body = idleCard(rows).body;
+  const sets = body.filter((b) => b.type === 'ColumnSet');
+  assert.equal(sets.length, 31);
+  assert.equal(body[body.length - 1].text, '+ 15 outras GPUs ociosas há mais de 12h');
+  assert.equal(body[body.length - 1].isSubtle, true);
+  assert.equal(sets[1].columns[0].items[0].text, 'S44');
+  assert.equal(sets[30].columns[0].items[0].text, 'S15');
+});
+
+test('200 rows with 700-char names and labels stay under 28 KB', () => {
+  const rows = Array.from({ length: 200 }, (_, i) => ({ server: 'S'.repeat(700), label: 'L'.repeat(700), idleMs: i * 3600_000 }));
+  assert.ok(Buffer.byteLength(JSON.stringify(envelope(idleCard(rows)))) < 28 * 1024);
+});

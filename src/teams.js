@@ -44,9 +44,13 @@ const cell = (text, width, opts = {}) => ({
 });
 const row = (cells, extra = {}) => ({ type: 'ColumnSet', spacing: 'Small', columns: cells, ...extra });
 
+const IDLE_CARD_MAX_ROWS = 30;
+
 function idleCard(rows) {
   const head = { weight: 'Bolder', isSubtle: true };
-  const sorted = [...rows].sort((a, b) => b.idleMs - a.idleMs);
+  const all = [...rows].sort((a, b) => b.idleMs - a.idleMs);
+  const sorted = all.slice(0, IDLE_CARD_MAX_ROWS);
+  const extra = all.length - sorted.length;
   return card([
     title('⚠️ GPUs ociosas há mais de 12h', 'Attention'),
     row([
@@ -59,6 +63,9 @@ function idleCard(rows) {
       cell(clip(r.label, NAME_MAX), 'auto'),
       cell(fmtHms(r.idleMs), 'auto', { horizontalAlignment: 'Right', fontType: 'Monospace' }),
     ], i === 0 ? { separator: true } : {})),
+    ...(extra > 0
+      ? [{ type: 'TextBlock', text: `+ ${extra} outras GPUs ociosas há mais de 12h`, isSubtle: true, wrap: true }]
+      : []),
   ]);
 }
 
@@ -100,4 +107,4 @@ async function postCard(url, content, { fetchFn = fetch, timeoutMs = 10_000 } = 
   if (!res.ok) throw new Error(`teams webhook: HTTP ${res.status}`);
 }
 
-module.exports = { fmtHms, fmtDuration, fmtWhen, idleCard, downCard, recoveryCard, envelope, postCard };
+module.exports = { IDLE_CARD_MAX_ROWS, fmtHms, fmtDuration, fmtWhen, idleCard, downCard, recoveryCard, envelope, postCard };
