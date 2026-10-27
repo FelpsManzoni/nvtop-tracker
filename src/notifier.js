@@ -38,6 +38,7 @@ class Notifier {
     for (const [name, s] of Object.entries(saved && typeof saved === 'object' ? saved : {})) {
       this.state[name] = normalize(s);
     }
+    this.observed = new Set(); // servers with a successful observe in this process
     this.entries = {}; // latest GPU entries per server, in memory only
   }
 
@@ -57,6 +58,7 @@ class Notifier {
     }
     s.downSince = null; s.lastError = null; s.noticeAt = null;
     this.entries[server] = entries || [];
+    this.observed.add(server);
   }
 
   async _try(card, onSuccess) {
@@ -100,7 +102,10 @@ class Notifier {
           });
         }
       }
-      for (const k of Object.keys(s.idle)) if (!live.has(k)) delete s.idle[k];
+      // never prune while down or before the first successful poll: would cause duplicate messages
+      if (s.downSince === null && this.observed.has(server)) {
+        for (const k of Object.keys(s.idle)) if (!live.has(k)) delete s.idle[k];
+      }
     }
     const listed = idleNow.filter((e) => e.milestone >= 1);
     const due = listed.some((e) => {

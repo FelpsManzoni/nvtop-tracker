@@ -211,3 +211,48 @@ test('a saved outage without a notice is dropped on load; one with a notice stil
   assert.equal(sent.length, 1);
   assert.equal(sent[0].body[0].text, '✅ B voltou');
 });
+
+test('a short outage does not re-send an already-notified GPU', async () => {
+  const { n, sent } = make();
+  n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 12 * H });
+  await n.tick(12 * H);
+  assert.equal(sent.length, 1);
+  n.observe('S', { ok: false, error: 'x', now: 12 * H + M });
+  await n.tick(12 * H + M);
+  assert.equal(sent.length, 1);
+  n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 12 * H + 2 * M });
+  await n.tick(12 * H + 2 * M);
+  assert.equal(sent.length, 1);
+  n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 24 * H });
+  await n.tick(24 * H);
+  assert.equal(sent.length, 2);
+});
+
+test('a restart ticking before the first successful poll does not re-send', async () => {
+  const a = make();
+  a.n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 12 * H });
+  await a.n.tick(12 * H);
+  assert.equal(a.sent.length, 1);
+  const b = make(JSON.parse(JSON.stringify(a.n.toJSON())));
+  await b.n.tick(12 * H + M);
+  assert.equal(b.sent.length, 0);
+  b.n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 12 * H + 2 * M });
+  await b.n.tick(12 * H + 2 * M);
+  assert.equal(b.sent.length, 0);
+  b.n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 24 * H });
+  await b.n.tick(24 * H);
+  assert.equal(b.sent.length, 1);
+});
+
+test('a GPU that became busy on an observed-ok server is pruned and re-notified at its own 12h', async () => {
+  const { n, sent } = make();
+  n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 12 * H });
+  await n.tick(12 * H);
+  assert.equal(sent.length, 1);
+  n.observe('S', { ok: true, entries: [], now: 13 * H });
+  await n.tick(13 * H);
+  assert.deepEqual(n.toJSON().S.idle, {});
+  n.observe('S', { ok: true, entries: [gpu('0', 14 * H)], now: 26 * H });
+  await n.tick(26 * H);
+  assert.equal(sent.length, 2);
+});
