@@ -232,3 +232,15 @@ test('a MIG poll that started before a GPU left and re-entered [N/A] does not pu
   assert.deepEqual(last.gpu.filter((g) => g.id === 7).map((g) => [g.key, g.utilization]), [['7', null]]);
   assert.ok(!last.gpu.some((g) => g.key.startsWith('7-')));
 });
+
+test('loadConfig rejects a bad teamsWebhookUrl', () => {
+  const { loadConfig } = require('../src/config');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-')), 'config.json');
+  for (const bad of [42, 'http://x', 'https://x/invoke?api-version\\=1']) {
+    fs.writeFileSync(file, JSON.stringify({ teamsWebhookUrl: bad }));
+    assert.throws(() => loadConfig(file), /teamsWebhookUrl/);
+  }
+  fs.writeFileSync(file, JSON.stringify({ teamsWebhookUrl: '' }));
+  assert.equal(loadConfig(file).teamsWebhookUrl, '');
+  assert.equal(loadConfig(path.join(os.tmpdir(), 'nonexistent-cfg.json')).teamsWebhookUrl, '');
+});
