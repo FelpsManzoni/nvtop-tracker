@@ -19,6 +19,14 @@ function fmtWhen(ts) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Collapse whitespace and truncate so card text can't blow Teams' 28 KB limit.
+function clip(text, max) {
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+const NAME_MAX = 80;
+const ERROR_LINE_MAX = 300;
+
 const title = (text, color) => ({
   type: 'TextBlock', text, weight: 'Bolder', size: 'Medium', color, wrap: true,
 });
@@ -47,8 +55,8 @@ function idleCard(rows) {
       cell('Ociosa há', 'auto', { ...head, horizontalAlignment: 'Right' }),
     ]),
     ...sorted.map((r, i) => row([
-      cell(r.server, 'stretch', { wrap: true }),
-      cell(r.label, 'auto'),
+      cell(clip(r.server, NAME_MAX), 'stretch', { wrap: true }),
+      cell(clip(r.label, NAME_MAX), 'auto'),
       cell(fmtHms(r.idleMs), 'auto', { horizontalAlignment: 'Right', fontType: 'Monospace' }),
     ], i === 0 ? { separator: true } : {})),
   ]);
@@ -56,15 +64,15 @@ function idleCard(rows) {
 
 function downCard({ server, downSince, error, now }) {
   return card([
-    title(`🔴 ${server} inacessível`, 'Attention'),
+    title(`🔴 ${clip(server, NAME_MAX)} inacessível`, 'Attention'),
     { type: 'TextBlock', wrap: true, text: `Sem resposta desde ${fmtWhen(downSince)} (há ${fmtDuration(now - downSince)})` },
-    { type: 'TextBlock', wrap: true, isSubtle: true, text: `Último erro: ${error}` },
+    { type: 'TextBlock', wrap: true, isSubtle: true, text: clip(`Último erro: ${error}`, ERROR_LINE_MAX) },
   ]);
 }
 
 function recoveryCard({ server, downSince, recoveredAt }) {
   return card([
-    title(`✅ ${server} voltou`, 'Good'),
+    title(`✅ ${clip(server, NAME_MAX)} voltou`, 'Good'),
     { type: 'TextBlock', wrap: true, text: `Ficou inacessível por ${fmtDuration(recoveredAt - downSince)} (desde ${fmtWhen(downSince)})` },
   ]);
 }
@@ -76,12 +84,19 @@ const envelope = (content) => ({
 
 // Resolves on any 2xx; errors never include the (secret) URL.
 async function postCard(url, content, { fetchFn = fetch, timeoutMs = 10_000 } = {}) {
-  const res = await fetchFn(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(envelope(content)),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  let res;
+  try {
+    res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(envelope(content)),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    // Original error may embed the URL; throw a fixed message, no cause.
+    const kind = err && (err.name === 'TimeoutError' || err.name === 'AbortError') ? 'timeout' : 'network error';
+    throw new Error(`teams webhook: request failed (${kind})`);
+  }
   if (!res.ok) throw new Error(`teams webhook: HTTP ${res.status}`);
 }
 

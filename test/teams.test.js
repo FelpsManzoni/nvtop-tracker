@@ -74,3 +74,32 @@ test('postCard throws on non-2xx without leaking the URL', async () => {
     postCard('https://x/secret', idleCard([]), { fetchFn }),
     (e) => /HTTP 400/.test(e.message) && !e.message.includes('secret'));
 });
+
+test('postCard never leaks the URL when fetch rejects', async () => {
+  const leak = async () => { throw new TypeError('request to https://x/secret-token failed'); };
+  await assert.rejects(
+    postCard('https://x/secret-token', idleCard([]), { fetchFn: leak }),
+    (e) => !e.message.includes('secret-token') && !e.message.includes('https://') && e.cause === undefined);
+  const timeout = async () => { const e = new Error('aborted https://x/secret-token'); e.name = 'TimeoutError'; throw e; };
+  await assert.rejects(
+    postCard('https://x/secret-token', idleCard([]), { fetchFn: timeout }),
+    (e) => /timeout/.test(e.message) && !e.message.includes('secret-token'));
+});
+
+test('card text is clipped', () => {
+  const idle = idleCard([{ server: 'S'.repeat(500), label: 'L'.repeat(500), idleMs: 1000 }]);
+  const cells = idle.body.filter((b) => b.type === 'ColumnSet')[1].columns.map((c) => c.items[0].text);
+  assert.ok(cells[0].length <= 80 && cells[0].endsWith('…'));
+  assert.ok(cells[1].length <= 80 && cells[1].endsWith('…'));
+  const err = Array.from({ length: 200 }, () => 'line of error').join('\n');
+  const down = downCard({ server: 'S'.repeat(500), downSince: 0, error: err, now: 60_000 });
+  assert.ok(down.body[0].text.length <= 80 + '🔴  inacessível'.length);
+  const line = down.body[2].text;
+  assert.ok(line.startsWith('Último erro: ') && line.length <= 300 && line.endsWith('…') && !/\n/.test(line));
+  assert.ok(recoveryCard({ server: 'S'.repeat(500), downSince: 0, recoveredAt: 1 }).body[0].text.length <= 80 + '✅  voltou'.length);
+});
+
+test('40 rows with 700-char names and labels stay under 28 KB', () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ server: 'S'.repeat(700), label: 'L'.repeat(700), idleMs: i * 3600_000 }));
+  assert.ok(Buffer.byteLength(JSON.stringify(envelope(idleCard(rows)))) < 28 * 1024);
+});
