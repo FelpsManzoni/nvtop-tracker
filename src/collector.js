@@ -4,6 +4,8 @@ const { SSHManager } = require('./sshManager');
 const { RollingBuffer } = require('./rollingBuffer');
 const { IdleHistory } = require('./idleHistory');
 const idleStore = require('./idleStore');
+const { Notifier } = require('./notifier');
+const { postCard } = require('./teams');
 const {
   parseGpuCsv,
   parseDf,
@@ -27,6 +29,7 @@ function shellQuote(str) {
 }
 
 const IDLE_SAVE_INTERVAL_MS = 60_000;
+const NOTIFY_INTERVAL_MS = 60_000;
 
 function initialState(name) {
   return {
@@ -58,6 +61,12 @@ class Collector extends EventEmitter {
     this.timers = [];
     this.idleHistoryFile = path.resolve(__dirname, '..', config.idleHistoryFile);
     const savedIdle = idleStore.load(this.idleHistoryFile);
+    this.notifierStateFile = path.join(path.dirname(this.idleHistoryFile), 'notifier-state.json');
+    // The webhook URL is a secret: it lives only in this closure, never in state, logs or errors.
+    const url = config.teamsWebhookUrl;
+    this.notifier = url
+      ? new Notifier({ send: (card) => postCard(url, card), saved: idleStore.load(this.notifierStateFile) })
+      : null;
 
     for (const server of config.servers) {
       this.state.set(server.name, initialState(server.name));
@@ -83,6 +92,7 @@ class Collector extends EventEmitter {
       this.timers.push(setInterval(() => this._pollStatus(server), this.config.diskPollIntervalMs));
     }
     this.timers.push(setInterval(() => this.saveIdleHistory(), IDLE_SAVE_INTERVAL_MS));
+    if (this.notifier) this.timers.push(setInterval(() => this.tickNotifier(), NOTIFY_INTERVAL_MS));
   }
 
   stop() {
@@ -101,6 +111,25 @@ class Collector extends EventEmitter {
       idleStore.save(this.idleHistoryFile, servers);
     } catch (err) {
       console.warn(`idle history: saving ${this.idleHistoryFile} failed (${err.message}); will retry`);
+    }
+    if (!this.notifier) return;
+    try {
+      idleStore.save(this.notifierStateFile, this.notifier.toJSON());
+    } catch (err) {
+      console.warn(`notifier state: saving ${this.notifierStateFile} failed (${err.message}); will retry`);
+    }
+  }
+
+  // Never throws (Notifier.tick handles send failures); no-op without a webhook.
+  async tickNotifier(now = Date.now()) {
+    if (!this.notifier || this.notifierTicking) return; // a slow POST must not let a second tick resend
+    this.notifierTicking = true;
+    try {
+      await this.notifier.tick(now);
+    } catch (err) {
+      console.warn(`notifier: tick failed (${err.message})`);
+    } finally {
+      this.notifierTicking = false;
     }
   }
 
@@ -151,8 +180,10 @@ class Collector extends EventEmitter {
         gpuProcesses: buildGpuProcesses(this.baseProcesses.get(server.name) || [], mig.byGpu),
         timestamp: Date.now(),
       });
+      this.notifier?.observe(server.name, { ok: true, entries: state.gpu, now });
     } catch (err) {
       Object.assign(state, { connected: false, error: err.message, timestamp: Date.now() });
+      this.notifier?.observe(server.name, { ok: false, error: err.message, now: Date.now() });
     }
     this.emit('update', { ...state });
   }

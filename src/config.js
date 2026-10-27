@@ -29,6 +29,8 @@ const DEFAULTS = {
   userAvatars: {},
   // Where per-GPU idle history is persisted (relative to the repo root, or absolute).
   idleHistoryFile: 'data/idle-history.json',
+  // Teams Workflows webhook for idle/down alerts; empty disables notifications. Never logged or sent to the browser.
+  teamsWebhookUrl: '',
 };
 
 function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
@@ -44,6 +46,10 @@ function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
   }
   if (typeof config.idleHistoryFile !== 'string' || !config.idleHistoryFile) {
     throw new Error('config.idleHistoryFile must be a non-empty file path');
+  }
+  const hook = config.teamsWebhookUrl;
+  if (typeof hook !== 'string' || (hook && (!hook.startsWith('https://') || hook.includes('\\')))) {
+    throw new Error('config.teamsWebhookUrl must be an https URL without backslashes');
   }
   return config;
 }

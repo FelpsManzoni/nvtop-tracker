@@ -232,3 +232,112 @@ test('a MIG poll that started before a GPU left and re-entered [N/A] does not pu
   assert.deepEqual(last.gpu.filter((g) => g.id === 7).map((g) => [g.key, g.utilization]), [['7', null]]);
   assert.ok(!last.gpu.some((g) => g.key.startsWith('7-')));
 });
+
+test('loadConfig rejects a bad teamsWebhookUrl', () => {
+  const { loadConfig } = require('../src/config');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-')), 'config.json');
+  for (const bad of [42, 'http://x', 'https://x/invoke?api-version\\=1']) {
+    fs.writeFileSync(file, JSON.stringify({ teamsWebhookUrl: bad }));
+    assert.throws(() => loadConfig(file), /teamsWebhookUrl/);
+  }
+  fs.writeFileSync(file, JSON.stringify({ teamsWebhookUrl: '' }));
+  assert.equal(loadConfig(file).teamsWebhookUrl, '');
+  assert.equal(loadConfig(path.join(os.tmpdir(), 'nonexistent-cfg.json')).teamsWebhookUrl, '');
+});
+
+// Collector with a webhook configured and a controllable GPU/disk SSH; cards are recorded.
+function setupNotify(idleHistoryFile = tmpIdleFile()) {
+  const collector = new Collector({
+    ...DEFAULTS,
+    idleHistoryFile,
+    teamsWebhookUrl: 'https://example.invalid/hook',
+    servers: [{ name: 's', host: 'h' }],
+  });
+  const ctl = { gpuFails: true };
+  collector.ssh.set('s', {
+    exec: (cmd) => {
+      if (cmd === DEFAULTS.gpuQueryCommand) return ctl.gpuFails ? Promise.reject(new Error('ssh timeout')) : Promise.resolve('0, GPU, 0, 1, 10, 30\n');
+      if (cmd === DEFAULTS.diskQueryCommand) return Promise.resolve('');
+      return Promise.reject(new Error('unused'));
+    },
+    disconnect: () => {},
+  });
+  const cards = [];
+  collector.notifier.send = async (card) => { cards.push(card); };
+  return { collector, ctl, cards, server: { name: 's', host: 'h' } };
+}
+
+test('a GPU poll failure is observed as down and a disk success does not clear it', async () => {
+  const { collector, server } = setupNotify();
+  await collector._pollGpu(server);
+  await collector._pollDisk(server);
+  assert.strictEqual(typeof collector.notifier.toJSON().s.downSince, 'number');
+});
+
+test('tickNotifier sends a down card after 5 minutes of GPU poll failures', async () => {
+  const { collector, cards, server } = setupNotify();
+  const T = Date.now();
+  await collector._pollGpu(server);
+  await collector.tickNotifier(T + 60_000);
+  assert.strictEqual(cards.length, 0);
+  await collector.tickNotifier(T + 5 * 60_000 + 1000);
+  assert.strictEqual(cards.length, 1);
+  assert.match(cards[0].body[0].text, /inacessível/);
+});
+
+test('notifier state is saved with the idle history and restored on restart', async () => {
+  const file = tmpIdleFile();
+  const first = setupNotify(file);
+  const T = Date.now();
+  await first.collector._pollGpu(first.server);
+  await first.collector.tickNotifier(T + 5 * 60_000 + 1000);
+  assert.strictEqual(first.cards.length, 1);
+  first.collector.stop();
+  assert.ok(fs.existsSync(path.join(path.dirname(file), 'notifier-state.json')));
+  const second = setupNotify(file);
+  assert.strictEqual(second.collector.notifier.toJSON().s.noticeAt, first.collector.notifier.toJSON().s.noticeAt);
+  assert.strictEqual(typeof second.collector.notifier.toJSON().s.noticeAt, 'number');
+});
+
+test('the webhook URL never reaches the SSE state', async () => {
+  const { collector, server } = setupNotify();
+  const updates = [];
+  collector.on('update', (s) => updates.push(s));
+  await collector._pollGpu(server);
+  assert.ok(!JSON.stringify([updates, collector.getSnapshot()]).includes('example.invalid'));
+});
+
+test('no notifier and no extra timer when teamsWebhookUrl is empty', (t) => {
+  const { collector } = setup();
+  assert.strictEqual(collector.notifier, null);
+  const set = t.mock.method(globalThis, 'setInterval', () => 1);
+  t.mock.method(globalThis, 'clearInterval', () => {});
+  collector.start();
+  assert.strictEqual(set.mock.calls.filter((c) => c.arguments[1] === 60_000).length, 1);
+  assert.doesNotThrow(() => collector.stop());
+  assert.doesNotThrow(() => collector.tickNotifier());
+  assert.ok(!fs.existsSync(collector.notifierStateFile));
+});
+
+test('start() registers a second 60 s timer for the notifier when a URL is set', (t) => {
+  const { collector } = setupNotify();
+  const set = t.mock.method(globalThis, 'setInterval', () => 1);
+  t.mock.method(globalThis, 'clearInterval', () => {});
+  collector.start();
+  assert.strictEqual(set.mock.calls.filter((c) => c.arguments[1] === 60_000).length, 2);
+  collector.stop();
+});
+
+test('overlapping notifier ticks do not double-send', async () => {
+  const { collector, cards, server } = setupNotify();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  collector.notifier.send = (card) => { cards.push(card); return held; };
+  const T = Date.now();
+  await collector._pollGpu(server);
+  const a = collector.tickNotifier(T + 301_000);
+  const b = collector.tickNotifier(T + 302_000);
+  release();
+  await Promise.all([a, b]);
+  assert.strictEqual(cards.length, 1);
+});
