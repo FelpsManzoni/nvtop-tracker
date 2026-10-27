@@ -249,10 +249,26 @@ test('a GPU that became busy on an observed-ok server is pruned and re-notified 
   n.observe('S', { ok: true, entries: [gpu('0', 0)], now: 12 * H });
   await n.tick(12 * H);
   assert.equal(sent.length, 1);
-  n.observe('S', { ok: true, entries: [], now: 13 * H });
+  n.observe('S', { ok: true, entries: [gpu('0', null, 80)], now: 13 * H });
   await n.tick(13 * H);
   assert.deepEqual(n.toJSON().S.idle, {});
   n.observe('S', { ok: true, entries: [gpu('0', 14 * H)], now: 26 * H });
   await n.tick(26 * H);
+  assert.equal(sent.length, 2);
+});
+
+test('an unknown-utilization blip does not re-send a notified milestone', async () => {
+  const { n, sent } = make();
+  const at = (utilization, now) => n.observe('S', { ok: true, entries: [{ key: '7-1', label: 'GPU 7 - 1', utilization, idleSince: 0 }], now });
+  at(0, 12 * H);
+  await n.tick(12 * H);
+  assert.equal(sent.length, 1);
+  at(null, 12 * H + M);
+  await n.tick(12 * H + M);
+  assert.equal(sent.length, 1);
+  at(0, 12 * H + 2 * M);
+  await n.tick(12 * H + 2 * M);
+  assert.equal(sent.length, 1);
+  await n.tick(24 * H);
   assert.equal(sent.length, 2);
 });

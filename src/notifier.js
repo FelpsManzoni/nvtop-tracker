@@ -91,20 +91,20 @@ class Notifier {
   async _idle(now) {
     const idleNow = []; // { server, s, key, label, idleSince, milestone }
     for (const [server, s] of Object.entries(this.state)) {
-      const live = new Set();
+      const busy = new Set(); // keys known (finite utilization) and not idle
       if (s.downSince === null) {
         for (const e of this.entries[server] || []) {
-          if (!Number.isFinite(e.utilization) || e.idleSince == null) continue;
-          live.add(e.key);
+          if (!Number.isFinite(e.utilization)) continue;
+          if (e.idleSince == null) { busy.add(e.key); continue; }
           idleNow.push({
             server, s, key: e.key, label: e.label, idleSince: e.idleSince,
             milestone: Math.floor((now - e.idleSince) / IDLE_NOTIFY_STEP_MS),
           });
         }
       }
-      // never prune while down or before the first successful poll: would cause duplicate messages
+      // prune only keys positively known busy; unknown/absent keys keep their record (no duplicates)
       if (s.downSince === null && this.observed.has(server)) {
-        for (const k of Object.keys(s.idle)) if (!live.has(k)) delete s.idle[k];
+        for (const k of busy) delete s.idle[k];
       }
     }
     const listed = idleNow.filter((e) => e.milestone >= 1);
