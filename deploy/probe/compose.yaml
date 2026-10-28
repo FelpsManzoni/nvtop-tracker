@@ -1,0 +1,35 @@
+# The SSH probe: checks every 30 s that each server answers on its SSH port with an SSH banner
+# (no key, no login) and remote-writes the result to the hub's Prometheus, which drives the Teams
+# "inacessível" / "voltou" cards. Run it on a machine in the developers' network that reaches every
+# server. Run ./init.sh first: it writes .env, prometheus-password and agent.yml.
+name: nvtop-probe
+
+services:
+  blackbox:
+    image: prom/blackbox-exporter:v0.29.1
+    network_mode: host # probes the servers from this machine's network; listens on 127.0.0.1 only
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+      - --web.listen-address=127.0.0.1:19115
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    restart: unless-stopped
+
+  agent:
+    image: prom/prometheus:v3.13.5
+    network_mode: host # scrapes blackbox on 127.0.0.1; serves nothing off this host
+    user: "${NVTOP_UID:?run ./init.sh}:${NVTOP_GID:?run ./init.sh}"
+    command:
+      - --agent
+      - --config.file=/etc/prometheus/agent.yml
+      - --storage.agent.path=/agent
+      - --web.listen-address=127.0.0.1:19190
+    volumes:
+      - ./agent.yml:/etc/prometheus/agent.yml:ro
+      - ./prometheus-password:/etc/prometheus/password:ro
+      - ./agent-data:/agent
+    depends_on: [blackbox]
+    restart: unless-stopped

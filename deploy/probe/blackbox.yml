@@ -1,0 +1,8 @@
+# One check: the server's SSH port answers with an SSH identification banner. No key, no login.
+modules:
+  ssh_banner:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      query_response:
+        - expect: "^SSH-2.0-"

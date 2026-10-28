@@ -119,6 +119,16 @@ cd nvtop-tracker/deploy/remote
 docker compose up -d --build         # init.sh asks for PROMETHEUS_PASSWORD from the hub's .env
 ```
 
+**SSH probe** (`deploy/probe`): on a machine in the developers' network that reaches every
+server, `blackbox_exporter` checks each server's SSH banner every 30 s (no key, no login) and a
+Prometheus agent writes the results to the hub. They drive the Teams unreachable/recovery messages.
+
+```bash
+cd nvtop-tracker/deploy/probe
+./init.sh --hub-url http://<hub-host>:19090 --target "GPU Server 1=<host-1>" --target "GPU Server 2=<host-2>"
+docker compose up -d                 # init.sh asks for PROMETHEUS_PASSWORD from the hub's .env
+```
+
 `init.sh` remembers its options in `.env`, so re-running it needs none (`--new-password` rotates
 the hub's password). Update a host with `git pull && docker compose up -d --build`; logs with
 `docker compose logs -f`. Exporters listen on `127.0.0.1` only; the containers list goes through a

@@ -1,0 +1,40 @@
+# Template: init.sh writes agent.yml from it, with one target per server.
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: nvtop_ssh
+    metrics_path: /probe
+    params:
+      module: [ssh_banner]
+    static_configs:
+__TARGETS__
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:19115
+    # Keep only the result and its duration, under the names the dashboard reads.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: probe_success|probe_duration_seconds
+        action: keep
+      - source_labels: [__name__]
+        regex: probe_success
+        target_label: __name__
+        replacement: nvtop_ssh_up
+      - source_labels: [__name__]
+        regex: probe_duration_seconds
+        target_label: __name__
+        replacement: nvtop_ssh_probe_duration_seconds
+
+remote_write:
+  - url: __HUB_URL__/api/v1/write
+    basic_auth:
+      username: nvtop
+      password_file: /etc/prometheus/password
+    queue_config:
+      batch_send_deadline: 5s

@@ -1,7 +1,7 @@
 {
   "servers": [
     { "name": "GPU Server 1" },
-    { "name": "GPU Server 2" }
+    { "name": "GPU Server 2", "idleAlerts": false }
   ],
   "port": 13000,
   "prometheusUrl": "http://127.0.0.1:19090",
