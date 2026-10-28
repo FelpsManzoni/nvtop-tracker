@@ -19,6 +19,12 @@ const hms = (text) => {
   return m ? ((Number(m[1]) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 : null;
 };
 
+// A board's mean utilization of a GPU entry over the last minute (its latest reading without history).
+const minuteMean = (side, gpu) => {
+  const m = side.state.util1m && side.state.util1m[gpu.key];
+  return isNum(m) ? m : gpu.utilization;
+};
+
 function compareServer(server, old, neu, { skipIdleTime = false } = {}) {
   const out = [];
   const add = (item, key, a, b, rule, expected = false) => out.push({ server, item, key, old: a, new: b, rule, expected });
@@ -46,11 +52,16 @@ function compareServer(server, old, neu, { skipIdleTime = false } = {}) {
     const key = a.label;
     if (a.mig !== b.mig) add('MIG', key, a.mig, b.mig, 'equal');
 
-    const ua = a.utilization;
-    const ub = b.utilization;
-    if (isNum(ua) !== isNum(ub)) add('utilization', key, ua, ub, 'both known or both n/a');
-    else if (isNum(ua) && ((ua < 1) !== (ub < 1) || Math.abs(ua - ub) > TOLERANCE.utilizationPoints)) {
-      add('utilization', key, ua, ub, `same idle/busy class, within ±${TOLERANCE.utilizationPoints} points`);
+    // Training loads swing between 0 and 100 % within seconds and the boards sample at different
+    // instants, so the 1-minute mean of each board's own history is compared, not the latest
+    // reading (the idle/busy state is compared through the status pill).
+    if (isNum(a.utilization) !== isNum(b.utilization)) add('utilization', key, a.utilization, b.utilization, 'both known or both n/a');
+    else if (isNum(a.utilization)) {
+      const ma = minuteMean(old, a);
+      const mb = minuteMean(neu, b);
+      if (Math.abs(ma - mb) > TOLERANCE.utilizationPoints) {
+        add('utilization', key, Math.round(ma), Math.round(mb), `1-minute mean within ±${TOLERANCE.utilizationPoints} points`);
+      }
     }
 
     const total = Math.max(a.memory.total || 0, b.memory.total || 0);
@@ -143,15 +154,22 @@ function compareServer(server, old, neu, { skipIdleTime = false } = {}) {
 const mismatchId = (m) => `${m.server}|${m.item}|${m.key}`;
 
 // Containers and disks are polled every 5 minutes by both boards, out of phase: after a change,
-// one board can lag the other by up to a whole poll.
+// one board can lag the other by up to a whole poll. Temperatures follow load swings within
+// seconds, so a gap between two instants is only real once it lasts minutes.
 const SLOW_POLL_MS = 5 * 60_000;
+const TEMPERATURE_PERSIST_MS = 2 * 60_000;
 const isSlow = (m) => ['container', 'disk', 'disk usage'].includes(m.item) || (m.item === 'rendered rows' && m.key !== 'processRows');
 
 // A mismatch counts only when it shows in consecutive rounds: two for live readings (the boards
-// sample at different instants, and processes come and go), and longer than a slow poll (plus a
-// minute) for containers and disks. Returns the unexpected ones that persisted.
+// sample at different instants, and processes come and go), two minutes for temperatures, and
+// longer than a slow poll (plus a minute) for containers and disks. Returns the unexpected ones
+// that persisted.
 function persistent(rounds, { intervalMs = 30_000 } = {}) {
-  const needed = (m) => (isSlow(m) ? Math.ceil((SLOW_POLL_MS + 60_000) / intervalMs) + 1 : 2);
+  const needed = (m) => {
+    if (isSlow(m)) return Math.ceil((SLOW_POLL_MS + 60_000) / intervalMs) + 1;
+    if (m.item === 'temperature') return Math.ceil(TEMPERATURE_PERSIST_MS / intervalMs) + 1;
+    return 2;
+  };
   const streak = new Map();
   const found = new Map();
   for (const round of rounds) {

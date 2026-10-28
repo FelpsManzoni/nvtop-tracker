@@ -200,8 +200,8 @@ notifications — no live servers required.
 ### Parity check
 
 While the SSH-based dashboard and this one run side by side, `npm run parity` compares them on
-live data with Playwright (Chromium): per server, GPU entries and MIG partitions, utilization /
-memory / temperature within tolerances, status pills and idle times, owners, processes,
+live data with Playwright (Chromium): per server, GPU entries and MIG partitions, utilization
+(1-minute means), memory and temperature within tolerances, status pills and idle times, owners, processes,
 containers and disks, as received and as rendered.
 
 ```bash

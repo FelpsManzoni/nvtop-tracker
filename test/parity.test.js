@@ -19,9 +19,11 @@ test('identical captures and differences within tolerance produce no mismatch', 
   assert.deepEqual(compareServer('S', side(), b), []);
 });
 
-test('utilization must keep its idle/busy class and stay within 10 points', () => {
-  assert.deepEqual(items(compareServer('S', side({ gpus: [gpu('0', { utilization: 0 })] }), side({ gpus: [gpu('0', { utilization: 5 })] }))), [['utilization', 'GPU 0', false]]);
-  assert.deepEqual(items(compareServer('S', side(), side({ gpus: [gpu('0', { utilization: 70 })] }))), [['utilization', 'GPU 0', false]]);
+test('utilization: 1-minute means within 10 points; known vs n/a always differs', () => {
+  const withMean = (now, mean) => { const s = side({ gpus: [gpu('0', { utilization: now })] }); s.state.util1m = { 0: mean }; return s; };
+  assert.deepEqual(compareServer('S', withMean(100, 60), withMean(35, 55)), [], 'instants differ, minutes agree');
+  assert.deepEqual(items(compareServer('S', withMean(50, 80), withMean(50, 60))), [['utilization', 'GPU 0', false]]);
+  assert.deepEqual(items(compareServer('S', side(), side({ gpus: [gpu('0', { utilization: 70 })] }))), [['utilization', 'GPU 0', false]], 'no history: latest readings');
   assert.deepEqual(items(compareServer('S', side(), side({ gpus: [gpu('0', { utilization: null })] }))), [['utilization', 'GPU 0', false]]);
 });
 
@@ -85,4 +87,11 @@ test('container and disk mismatches must outlast a 5-minute poll before they cou
   assert.deepEqual(persistent(rounds(12, c, rows), { intervalMs: 30_000 }), []); // 5.5 min: one board still lagging
   assert.deepEqual(persistent(rounds(13, c, rows), { intervalMs: 30_000 }), [c, rows]);
   assert.deepEqual(persistent(rounds(2, procRows), { intervalMs: 30_000 }), [procRows]);
+});
+
+test('a temperature gap counts only once it lasts two minutes', () => {
+  const t = { server: 'S', item: 'temperature', key: 'GPU 1', expected: false };
+  const rounds = (n) => Array.from({ length: n }, () => [t]);
+  assert.deepEqual(persistent(rounds(4), { intervalMs: 30_000 }), []);
+  assert.deepEqual(persistent(rounds(5), { intervalMs: 30_000 }), [t]);
 });
