@@ -130,7 +130,8 @@ docker compose up -d                 # init.sh asks for PROMETHEUS_PASSWORD from
 ```
 
 `init.sh` remembers its options in `.env`, so re-running it needs none (`--new-password` rotates
-the hub's password). Update a host with `git pull && docker compose up -d --build`; logs with
+the hub's password). Update a host with `git pull && docker compose build && docker compose up -d` (a single
+`up -d --build` can leave a container on the old image with some Compose versions); logs with
 `docker compose logs -f`. Exporters listen on `127.0.0.1` only; the containers list goes through a
 proxy that allows `GET /containers/json` and nothing else, over a Unix socket. Where DCGM is
 installed, the exporter uses the host's own `dcgmi`, so it always matches the host engine.
