@@ -123,7 +123,7 @@ test('first run with no saved state sends one catch-up message', async () => {
 
 test('server down: nothing before 5 min, notice at 5 min, reminder every hour, recovery once', async () => {
   const { n, sent } = make();
-  const S = 'H200 Server 2';
+  const S = 'GPU Server 2';
   n.observe(S, { ok: false, error: 'ssh timeout', now: 0 });
   await n.tick(4 * M);
   assert.equal(sent.length, 0);
@@ -270,5 +270,21 @@ test('an unknown-utilization blip does not re-send a notified milestone', async 
   await n.tick(12 * H + 2 * M);
   assert.equal(sent.length, 1);
   await n.tick(24 * H);
+  assert.equal(sent.length, 2);
+});
+
+test('unknown(): a server whose data source failed is neither idle-reported nor down, and keeps its milestones', async () => {
+  const { n, sent } = make();
+  n.observe('S1', { ok: true, entries: [gpu('3', 0)], now: 12 * H });
+  await n.tick(12 * H);
+  assert.equal(sent.length, 1); // the 12h milestone
+
+  n.unknown('S1');
+  await n.tick(25 * H); // would be the 24h milestone if the old entries still counted
+  assert.equal(sent.length, 0 + 1);
+  assert.equal(n.toJSON().S1.downSince, null);
+
+  n.observe('S1', { ok: true, entries: [gpu('3', 0)], now: 25 * H }); // same idleSince: due at 24h now
+  await n.tick(25 * H);
   assert.equal(sent.length, 2);
 });

@@ -22,6 +22,13 @@ function fmtMib(mib) {
   return `${(mib / 1024).toFixed(1)} GB`;
 }
 
+// Memory may be unknown; a Jetson-style GPU's memory is the machine's (unified) memory.
+function fmtGpuMemory(gpu) {
+  const { used, total } = gpu.memory;
+  if (!Number.isFinite(used) || !Number.isFinite(total)) return 'mem n/a';
+  return `${fmtMib(used)}/${fmtMib(total)}${gpu.unifiedMemory ? ' (unified)' : ''}`;
+}
+
 function avgGpuUtilization(state) {
   if (!state.gpu.length) return null;
   const known = state.gpu.map((g) => g.utilization).filter(Number.isFinite);
@@ -208,7 +215,7 @@ function renderGpuListBody(state) {
       (g) => `
         <div class="gpu-list-row">
           <span class="gpu-list-name">${escapeHtml(g.label)}</span>
-          <span class="gpu-list-stats">${g.utilization == null ? 'n/a' : `${g.utilization}%`} &middot; ${fmtMib(g.memory.used)}/${fmtMib(g.memory.total)} &middot; ${g.temperature}&deg;C</span>
+          <span class="gpu-list-stats">${g.utilization == null ? 'n/a' : `${g.utilization}%`} &middot; ${fmtGpuMemory(g)} &middot; ${g.temperature == null ? 'n/a' : `${g.temperature}&deg;C`}</span>
         </div>`
     )
     .join('');
@@ -451,7 +458,7 @@ function renderMain() {
   mainEl.innerHTML = `
     <div class="main-header">
       <h2>${escapeHtml(state.server)}</h2>
-      <span class="status">${state.connected ? 'connected' : 'unreachable'} &middot; updated ${lastUpdated}</span>
+      <span class="status">${state.connected ? 'connected' : `unreachable${state.error ? ` (${escapeHtml(state.error)})` : ''}`} &middot; updated ${lastUpdated}</span>
       <span class="status">avg 1m: ${fmtPct(trends.gpuAvgUtilization1m)} &middot; avg 5m: ${fmtPct(trends.gpuAvgUtilization5m)} &middot; max 5m: ${fmtPct(trends.gpuMaxUtilization5m)}</span>
     </div>
     <div id="dashboard">${blocksHtml}</div>

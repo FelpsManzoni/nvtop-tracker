@@ -2,29 +2,16 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULTS = {
+  // Each name must equal the `server` label Prometheus puts on that host's nvtop-exporter series.
   servers: [],
   port: 3000,
+  // The Prometheus fed by nvtop-exporter. Credentials come from PROMETHEUS_USERNAME / PROMETHEUS_PASSWORD.
+  prometheusUrl: 'http://127.0.0.1:19090',
   gpuPollIntervalMs: 2000,
-  diskPollIntervalMs: 300000,
   gpuHistoryMinutes: 5,
+  // A server whose exporter has not had a successful GPU poll for this long shows offline.
+  staleAfterMs: 10000,
   diskStorageAlertThreshold: 85,
-  sshRetryMaxAttempts: 3,
-  sshRetryDelayMs: 5000,
-  gpuQueryCommand:
-    'nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits',
-  diskQueryCommand: 'df -kPT',
-  dockerQueryCommand: 'docker ps --format "{{.Names}}\t{{.Status}}"',
-  dockerImagesQueryCommand: 'docker images --format "{{.Repository}}:{{.Tag}}\t{{.CreatedSince}}"',
-  gpuUuidQueryCommand: 'nvidia-smi --query-gpu=index,uuid --format=csv,noheader',
-  gpuProcessesQueryCommand:
-    'nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader',
-  // MIG partitions: {gpu} is one GPU index, {entities} is e.g. i:49,i:50 (GPU-instance entity ids).
-  migQueryCommand: 'timeout 10 nvidia-smi -q -x -i {gpu}',
-  dcgmDiscoveryCommand: 'timeout 10 dcgmi discovery -c',
-  dcgmActivityCommand: 'timeout 10 dcgmi dmon -e 1001 -c 2 -d 1000 -i {entities}',
-  // Mounts equal to (or nested under) one of these prefixes get a "top offending folder" scan.
-  diskTopFolderMountPrefixes: ['/data'],
-  duTimeoutSeconds: 25,
   // Linux username -> image path (relative to the repo root, or absolute), served at /avatars/<user>.
   userAvatars: {},
   // Where per-GPU idle history is persisted (relative to the repo root, or absolute).
@@ -33,12 +20,15 @@ const DEFAULTS = {
   teamsWebhookUrl: '',
 };
 
-function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
+function loadConfig(configPath = process.env.NVTOP_CONFIG || path.join(__dirname, '..', 'config.json'), env = process.env) {
   let userConfig = {};
   if (fs.existsSync(configPath)) {
     userConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
   const config = { ...DEFAULTS, ...userConfig };
+  if (!Array.isArray(config.servers) || config.servers.some((s) => !s || typeof s.name !== 'string' || !s.name)) {
+    throw new Error('config.servers must be a list of { "name": "<server label>" }');
+  }
   const avatars = config.userAvatars;
   if (!avatars || typeof avatars !== 'object' || Array.isArray(avatars) ||
       Object.values(avatars).some((v) => typeof v !== 'string')) {
@@ -51,6 +41,13 @@ function loadConfig(configPath = path.join(__dirname, '..', 'config.json')) {
   if (typeof hook !== 'string' || (hook && (!hook.startsWith('https://') || hook.includes('\\')))) {
     throw new Error('config.teamsWebhookUrl must be an https URL without backslashes');
   }
+  if (typeof config.prometheusUrl !== 'string' || !/^https?:\/\/[^/]/.test(config.prometheusUrl)) {
+    throw new Error('config.prometheusUrl must be an http(s) URL');
+  }
+  // Kept out of config.json so the repo and the config file never hold them.
+  config.prometheusAuth = env.PROMETHEUS_USERNAME
+    ? { username: env.PROMETHEUS_USERNAME, password: env.PROMETHEUS_PASSWORD || '' }
+    : {};
   return config;
 }
 

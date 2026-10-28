@@ -61,6 +61,13 @@ class Notifier {
     this.observed.add(server);
   }
 
+  // The data source failed, so nothing is known about this server right now: its GPUs leave the
+  // idle evaluation (no alert from stale data) without counting as an outage, and their notified
+  // milestones are kept.
+  unknown(server) {
+    this.entries[server] = [];
+  }
+
   async _try(card, onSuccess) {
     try {
       await this.send(card);

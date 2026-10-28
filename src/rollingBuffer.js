@@ -38,7 +38,10 @@ class RollingBuffer {
     for (const { timestamp, gpus } of this.samples) {
       for (const gpu of gpus) {
         if (!byGpu[gpu.key]) byGpu[gpu.key] = [];
-        const memoryPercent = gpu.memory.total ? (gpu.memory.used / gpu.memory.total) * 100 : 0;
+        const { used, total } = gpu.memory;
+        // Unknown memory draws no point; a zero total reads as 0 %.
+        const known = Number.isFinite(used) && Number.isFinite(total);
+        const memoryPercent = !known ? null : total ? (used / total) * 100 : 0;
         byGpu[gpu.key].push({ timestamp, utilization: gpu.utilization, memoryPercent });
       }
     }

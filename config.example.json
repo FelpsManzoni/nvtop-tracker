@@ -1,27 +1,15 @@
 {
   "servers": [
-    { "name": "GPU Server 1", "host": "gpu-server-1.local" },
-    { "name": "GPU Server 2", "host": "my-ssh-config-alias" }
+    { "name": "GPU Server 1" },
+    { "name": "GPU Server 2" }
   ],
   "port": 3000,
+  "prometheusUrl": "http://127.0.0.1:19090",
   "gpuPollIntervalMs": 2000,
-  "diskPollIntervalMs": 300000,
   "gpuHistoryMinutes": 5,
+  "staleAfterMs": 10000,
   "diskStorageAlertThreshold": 85,
-  "sshRetryMaxAttempts": 3,
-  "sshRetryDelayMs": 5000,
-  "gpuQueryCommand": "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits",
-  "diskQueryCommand": "df -kPT",
-  "dockerQueryCommand": "docker ps --format \"{{.Names}}\\t{{.Status}}\"",
-  "dockerImagesQueryCommand": "docker images --format \"{{.Repository}}:{{.Tag}}\\t{{.CreatedSince}}\"",
-  "gpuUuidQueryCommand": "nvidia-smi --query-gpu=index,uuid --format=csv,noheader",
-  "gpuProcessesQueryCommand": "nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader",
-  "migQueryCommand": "timeout 10 nvidia-smi -q -x -i {gpu}",
-  "dcgmDiscoveryCommand": "timeout 10 dcgmi discovery -c",
-  "dcgmActivityCommand": "timeout 10 dcgmi dmon -e 1001 -c 2 -d 1000 -i {entities}",
-  "diskTopFolderMountPrefixes": ["/data"],
-  "duTimeoutSeconds": 25,
-  "userAvatars": { "f.manzoni": "avatars/f.manzoni.png" },
+  "userAvatars": { "jsilva": "avatars/jsilva.png" },
   "idleHistoryFile": "data/idle-history.json",
   "teamsWebhookUrl": ""
 }

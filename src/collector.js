@@ -1,35 +1,20 @@
 const EventEmitter = require('events');
 const path = require('path');
-const { SSHManager } = require('./sshManager');
 const { RollingBuffer } = require('./rollingBuffer');
 const { IdleHistory } = require('./idleHistory');
 const idleStore = require('./idleStore');
 const { Notifier } = require('./notifier');
 const { postCard } = require('./teams');
-const {
-  parseGpuCsv,
-  parseDf,
-  parseDockerPs,
-  parseDockerImages,
-  parseGpuProcesses,
-  parseDuTopFolder,
-  parsePsOutput,
-  parseMigXml,
-  parseDcgmDiscovery,
-  parseDcgmDmon,
-} = require('./parsers');
-const { buildGpuEntries, buildGpuProcesses } = require('./mig');
-
-function isDataMount(mountpoint, prefixes) {
-  return prefixes.some((prefix) => mountpoint === prefix || mountpoint.startsWith(`${prefix}/`));
-}
-
-function shellQuote(str) {
-  return `'${str.replace(/'/g, `'\\''`)}'`;
-}
+const { PrometheusClient } = require('./prometheus');
+const { byServer, buildServerState, historySamples } = require('./promState');
 
 const IDLE_SAVE_INTERVAL_MS = 60_000;
 const NOTIFY_INTERVAL_MS = 60_000;
+// The notifier tracks the team's Prometheus like a server: its outage gets its own down card
+// instead of every server being reported down.
+const PROMETHEUS_NAME = 'Prometheus (nvtop)';
+const SERIES_QUERY = '{__name__=~"nvtop_.+"}';
+const HISTORY_QUERY = '{__name__=~"nvtop_gpu_(info|utilization_percent|memory_used_mib|memory_total_mib)"}';
 
 function initialState(name) {
   return {
@@ -46,19 +31,19 @@ function initialState(name) {
   };
 }
 
+// Reads every server's state from the team Prometheus (filled by nvtop-exporter on each host)
+// and keeps the per-server idle history, graphs and Teams notifications.
 class Collector extends EventEmitter {
-  constructor(config) {
+  constructor(config, { client } = {}) {
     super();
     this.config = config;
+    this.client = client || new PrometheusClient({ url: config.prometheusUrl, ...config.prometheusAuth });
     this.state = new Map();
     this.buffers = new Map();
     this.idle = new Map();
-    this.processPollsInFlight = new Set();
-    this.migPollsInFlight = new Set();
-    this.mig = new Map(); // server -> { byGpu: Map<gpuId, parseMigXml result>, util: Map<"gpu/gi", {value, at}>, gen: Map<gpuId, number> } (gen fences off stale polls)
-    this.baseProcesses = new Map();
-    this.ssh = new Map();
     this.timers = [];
+    this.polling = false;
+    this.seeded = Promise.resolve();
     this.idleHistoryFile = path.resolve(__dirname, '..', config.idleHistoryFile);
     const savedIdle = idleStore.load(this.idleHistoryFile);
     this.notifierStateFile = path.join(path.dirname(this.idleHistoryFile), 'notifier-state.json');
@@ -72,25 +57,13 @@ class Collector extends EventEmitter {
       this.state.set(server.name, initialState(server.name));
       this.buffers.set(server.name, new RollingBuffer({ historyMinutes: config.gpuHistoryMinutes }));
       this.idle.set(server.name, IdleHistory.fromJSON(savedIdle[server.name]));
-      this.ssh.set(
-        server.name,
-        new SSHManager(server, {
-          maxAttempts: config.sshRetryMaxAttempts,
-          retryDelayMs: config.sshRetryDelayMs,
-        })
-      );
     }
   }
 
   start() {
-    for (const server of this.config.servers) {
-      this._pollGpu(server);
-      this._pollDisk(server);
-      this._pollStatus(server);
-      this.timers.push(setInterval(() => this._pollGpu(server), this.config.gpuPollIntervalMs));
-      this.timers.push(setInterval(() => this._pollDisk(server), this.config.diskPollIntervalMs));
-      this.timers.push(setInterval(() => this._pollStatus(server), this.config.diskPollIntervalMs));
-    }
+    this.seeded = this.seedHistory();
+    this.poll();
+    this.timers.push(setInterval(() => this.poll(), this.config.gpuPollIntervalMs));
     this.timers.push(setInterval(() => this.saveIdleHistory(), IDLE_SAVE_INTERVAL_MS));
     if (this.notifier) this.timers.push(setInterval(() => this.tickNotifier(), NOTIFY_INTERVAL_MS));
   }
@@ -99,7 +72,6 @@ class Collector extends EventEmitter {
     for (const timer of this.timers) clearInterval(timer);
     this.timers = [];
     this.saveIdleHistory();
-    for (const ssh of this.ssh.values()) ssh.disconnect();
   }
 
   // Never throws: a failed save is logged and retried on the next interval. Servers no longer
@@ -133,200 +105,88 @@ class Collector extends EventEmitter {
     }
   }
 
-  async _pollGpu(server) {
-    const ssh = this.ssh.get(server.name);
-    const state = this.state.get(server.name);
-    // GPU processes ride the GPU poll so owner avatars stay as fresh as the utilization
-    // numbers. Their result is stored whenever it lands and goes out with the next GPU
-    // update (no extra SSE re-render), so a slow/hung process query never delays GPU
-    // telemetry; at most one process query per server is in flight at a time.
-    if (!this.processPollsInFlight.has(server.name)) {
-      this.processPollsInFlight.add(server.name);
-      this._pollGpuProcesses(ssh)
-        .then((processes) => {
-          this.baseProcesses.set(server.name, processes);
-        })
-        .finally(() => this.processPollsInFlight.delete(server.name));
-    }
+  // Fills the graphs with the last gpuHistoryMinutes from Prometheus, so a restart doesn't start
+  // them empty. Never throws: without it the graphs just fill up live.
+  async seedHistory(now = Date.now()) {
+    const minutes = this.config.gpuHistoryMinutes;
     try {
-      const output = await ssh.exec(this.config.gpuQueryCommand);
-      const gpus = parseGpuCsv(output);
-      const now = Date.now();
-      const naGpus = gpus.filter((g) => g.utilization === null).map((g) => g.id);
-      if (naGpus.length && !this.migPollsInFlight.has(server.name)) {
-        this.migPollsInFlight.add(server.name);
-        this._pollMig(ssh, server.name, naGpus).finally(() => this.migPollsInFlight.delete(server.name));
+      const series = await this.client.queryRange(HISTORY_QUERY, now - minutes * 60_000, now, this.config.gpuPollIntervalMs);
+      for (const [name, samples] of historySamples(series)) {
+        const buffer = this.buffers.get(name);
+        if (buffer) for (const { timestamp, gpus } of samples) buffer.push(gpus, timestamp);
       }
-      const mig = this.mig.get(server.name) || { byGpu: new Map(), util: new Map(), gen: new Map() };
-      // Forget MIG state for GPUs that are numeric again or no longer listed.
-      const stillNa = new Set(naGpus);
-      for (const id of new Set([...mig.byGpu.keys(), ...mig.gen.keys()])) {
-        if (stillNa.has(id)) continue;
-        mig.gen.set(id, (mig.gen.get(id) || 0) + 1); // in-flight MIG polls for this GPU are now stale
-        mig.byGpu.delete(id);
-        for (const k of [...mig.util.keys()]) if (k.startsWith(`${id}/`)) mig.util.delete(k);
+    } catch (err) {
+      console.warn(`history: could not load the last ${minutes} min from Prometheus (${err.message})`);
+    }
+  }
+
+  // One query for every server per interval, at most one in flight.
+  async poll() {
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      await this.seeded;
+      let result;
+      try {
+        result = await this.client.query(SERIES_QUERY);
+      } catch (err) {
+        this._prometheusFailed(err);
+        return;
       }
-      const entries = buildGpuEntries(gpus, mig.byGpu, mig.util, now, 3 * this.config.gpuPollIntervalMs);
-      const buffer = this.buffers.get(server.name);
-      buffer.push(entries, now);
-      const idle = this.idle.get(server.name);
-      idle.update(entries, now);
+      this.notifier?.observe(PROMETHEUS_NAME, { ok: true, entries: [], now: Date.now() });
+      const grouped = byServer(result.series);
+      for (const server of this.config.servers) this._apply(server.name, grouped.get(server.name) || [], result.time);
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  // Freshness compares the exporter's own timestamp with Prometheus' evaluation time; everything
+  // the dashboard records (graphs, idle history, notifier) uses this host's clock, as before.
+  _apply(name, series, evaluatedAt) {
+    const state = this.state.get(name);
+    const now = Date.now();
+    const s = buildServerState(series, {
+      now: evaluatedAt,
+      staleAfterMs: this.config.staleAfterMs,
+      diskAlertThreshold: this.config.diskStorageAlertThreshold,
+      userAvatars: this.config.userAvatars,
+    });
+    if (s.fresh) {
+      const buffer = this.buffers.get(name);
+      buffer.push(s.gpu, now);
+      const idle = this.idle.get(name);
+      idle.update(s.gpu, now);
       Object.assign(state, {
         connected: true,
         error: null,
-        gpu: idle.annotate(entries, now),
-        trends: buffer.getTrends(),
+        gpu: idle.annotate(s.gpu, now),
+        trends: buffer.getTrends(now),
         historyByGpu: buffer.getHistoryByGpu(),
-        gpuProcesses: buildGpuProcesses(this.baseProcesses.get(server.name) || [], mig.byGpu),
-        timestamp: Date.now(),
+        gpuProcesses: s.gpuProcesses,
+        docker: s.docker,
+        disk: s.disk,
+        timestamp: now,
       });
-      this.notifier?.observe(server.name, { ok: true, entries: state.gpu, now });
-    } catch (err) {
-      Object.assign(state, { connected: false, error: err.message, timestamp: Date.now() });
-      this.notifier?.observe(server.name, { ok: false, error: err.message, now: Date.now() });
+      this.notifier?.observe(name, { ok: true, entries: state.gpu, now });
+    } else {
+      // The last GPU entries stay (the browser shows them offline); stale data never reaches idle tracking.
+      Object.assign(state, { connected: false, error: s.error, timestamp: now });
+      this.notifier?.observe(name, { ok: false, error: s.error, now });
     }
     this.emit('update', { ...state });
   }
 
-  async _pollDisk(server) {
-    const ssh = this.ssh.get(server.name);
-    const state = this.state.get(server.name);
-    try {
-      const output = await ssh.exec(this.config.diskQueryCommand);
-      const volumes = parseDf(output, this.config.diskStorageAlertThreshold);
-      await Promise.all(
-        volumes
-          .filter((v) => isDataMount(v.mountpoint, this.config.diskTopFolderMountPrefixes))
-          .map((v) => this._attachTopFolder(ssh, v))
-      );
-      state.disk = volumes;
-      state.connected = true;
-      state.error = null;
-    } catch (err) {
-      state.connected = false;
-      state.error = err.message;
+  // Nothing is known about any server: show it, but don't report them down or evaluate idle time.
+  _prometheusFailed(err) {
+    const now = Date.now();
+    for (const server of this.config.servers) {
+      const state = this.state.get(server.name);
+      Object.assign(state, { connected: false, error: `Prometheus inacessível: ${err.message}`, timestamp: now });
+      this.notifier?.unknown(server.name);
+      this.emit('update', { ...state });
     }
-    state.timestamp = Date.now();
-    this.emit('update', { ...state });
-  }
-
-  // Best-effort: on a large/busy filesystem the scan can time out before finishing, in
-  // which case the reported "top folder" is only the biggest among whatever got scanned,
-  // not necessarily the true biggest.
-  // ponytail: no caching/indexing (ncdu-style) -- add if 25s repeatedly isn't enough.
-  async _attachTopFolder(ssh, volume) {
-    try {
-      const duCommand = `timeout ${this.config.duTimeoutSeconds} du -x -k --max-depth=1 ${shellQuote(volume.mountpoint)} ; true`;
-      const output = await ssh.exec(duCommand);
-      volume.topFolder = parseDuTopFolder(output, volume.mountpoint);
-    } catch {
-      volume.topFolder = null;
-    }
-  }
-
-  // Best-effort: nvidia-smi only gives the binary path, not the args or the owning user.
-  // `ps` fills those in, keyed by pid; a process that already exited between the two
-  // queries just keeps nvidia-smi's bare binary path and no owner.
-  async _attachProcessOwners(ssh, processes) {
-    if (!processes.length) return;
-    try {
-      const pids = [...new Set(processes.map((p) => p.pid))];
-      // user:64 -- plain `user` truncates names over 8 chars (e.g. "f.manzon+").
-      const psOut = await ssh.exec(`ps -o pid=,user:64=,args= -p ${pids.join(',')}`);
-      const byPid = parsePsOutput(psOut);
-      for (const p of processes) {
-        const info = byPid.get(p.pid);
-        if (info) {
-          p.owner = info.user;
-          p.fullCommand = info.args;
-          if (Object.hasOwn(this.config.userAvatars, info.user)) {
-            p.avatarUrl = `/avatars/${encodeURIComponent(info.user)}`;
-          }
-        }
-      }
-    } catch {
-      // leave processes without owner/args
-    }
-  }
-
-  // Fails independently of the GPU poll: a missing process listing just empties the list
-  // and never affects the server's overall `connected` status.
-  async _pollGpuProcesses(ssh) {
-    try {
-      const [uuidOut, procOut] = await Promise.all([
-        ssh.exec(this.config.gpuUuidQueryCommand),
-        ssh.exec(this.config.gpuProcessesQueryCommand),
-      ]);
-      const processes = parseGpuProcesses(procOut, uuidOut);
-      await this._attachProcessOwners(ssh, processes);
-      return processes;
-    } catch {
-      return [];
-    }
-  }
-
-  // Never throws and never touches `connected`. A failed XML query drops that GPU back to a
-  // single n/a entry; any DCGM failure keeps the previous readings (staleness nulls them).
-  async _pollMig(ssh, serverName, gpuIndexes) {
-    try {
-      let mig = this.mig.get(serverName);
-      if (!mig) this.mig.set(serverName, (mig = { byGpu: new Map(), util: new Map(), gen: new Map() }));
-      const gens = new Map(gpuIndexes.map((i) => [i, mig.gen.get(i) || 0]));
-      for (const [i, g] of gens) mig.gen.set(i, g);
-      const fresh = (i) => mig.gen.get(i) === gens.get(i);
-      await Promise.all(
-        gpuIndexes.map(async (i) => {
-          try {
-            const parsed = parseMigXml(await ssh.exec(this.config.migQueryCommand.replace('{gpu}', i)));
-            await this._attachProcessOwners(ssh, parsed.processes);
-            if (fresh(i)) mig.byGpu.set(i, parsed);
-          } catch {
-            if (fresh(i)) mig.byGpu.delete(i);
-          }
-        })
-      );
-      const wanted = [];
-      for (const [gpuId, m] of mig.byGpu) {
-        if (m.migEnabled) for (const d of m.devices) wanted.push(`${gpuId}/${d.gpuInstanceId}`);
-      }
-      if (!wanted.length) return;
-      try {
-        const discovery = parseDcgmDiscovery(await ssh.exec(this.config.dcgmDiscoveryCommand));
-        const entityOf = new Map(wanted.filter((k) => discovery.has(k)).map((k) => [k, discovery.get(k)]));
-        if (!entityOf.size) return;
-        const entities = [...entityOf.values()].map((e) => `i:${e}`).join(',');
-        const dmon = parseDcgmDmon(await ssh.exec(this.config.dcgmActivityCommand.replace('{entities}', entities)));
-        const at = Date.now();
-        for (const [k, e] of entityOf) {
-          if (dmon.has(e) && fresh(Number(k.split('/')[0]))) mig.util.set(k, { value: dmon.get(e), at });
-        }
-      } catch {
-        // keep previous readings
-      }
-    } catch {
-      // never propagate
-    }
-  }
-
-  // Docker listings change slowly, so this rides the same interval as the disk poll
-  // instead of its own timer. A failure here doesn't affect the server's overall
-  // `connected` status (GPU/disk polls own that).
-  async _pollStatus(server) {
-    const ssh = this.ssh.get(server.name);
-    const state = this.state.get(server.name);
-
-    try {
-      const [containersOut, imagesOut] = await Promise.all([
-        ssh.exec(this.config.dockerQueryCommand),
-        ssh.exec(this.config.dockerImagesQueryCommand),
-      ]);
-      state.docker = { containers: parseDockerPs(containersOut), images: parseDockerImages(imagesOut) };
-    } catch (err) {
-      state.docker = { containers: [], images: [], error: err.message };
-    }
-
-    state.timestamp = Date.now();
-    this.emit('update', { ...state });
+    this.notifier?.observe(PROMETHEUS_NAME, { ok: false, error: err.message, now });
   }
 
   getSnapshot() {
@@ -334,4 +194,4 @@ class Collector extends EventEmitter {
   }
 }
 
-module.exports = { Collector };
+module.exports = { Collector, PROMETHEUS_NAME };
