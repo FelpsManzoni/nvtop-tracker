@@ -12,7 +12,7 @@ fi
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SVC_USER="${1:-${SUDO_USER:-}}"
 if [[ -z "$SVC_USER" || "$SVC_USER" == root ]]; then
-  echo "Pass the non-root user that owns the SSH keys: sudo $0 <user>" >&2
+  echo "Pass the non-root user that owns the repo: sudo $0 <user>" >&2
   exit 1
 fi
 SVC_GROUP="$(id -gn "$SVC_USER")"
