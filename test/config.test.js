@@ -36,7 +36,7 @@ test('loadConfig rejects a bad teamsWebhookUrl', () => {
 
 test('loadConfig requires named servers and an http(s) prometheusUrl', () => {
   const file = tmpFile();
-  for (const bad of [{ servers: {} }, { servers: [{ host: 'h200' }] }, { servers: [{ name: '' }] }]) {
+  for (const bad of [{ servers: {} }, { servers: [{ host: 'gpu-server-1' }] }, { servers: [{ name: '' }] }, { servers: [{ name: 'x', idleAlerts: 'no' }] }]) {
     fs.writeFileSync(file, JSON.stringify(bad));
     assert.throws(() => loadConfig(file), /config.servers/);
   }

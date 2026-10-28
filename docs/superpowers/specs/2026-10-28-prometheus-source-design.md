@@ -4,8 +4,9 @@
 **Status:** reviewed; open questions decided on 2026-10-28 (see *Decisions*)
 
 Names in this document are placeholders: **GPU server** is the multi-GPU host that also runs the
-team's Prometheus and the dashboard, **Jetson** is a Jetson-class device with unified memory, and
-**old dashboard host** is the machine that runs the current SSH-based tracker.
+team's Prometheus and the dashboard, **Jetson** is a Jetson-class device with unified memory used
+for inference only, and **old dashboard host** is the workstation that runs the current SSH-based
+tracker, in the developers' network.
 
 ## Why
 
@@ -33,7 +34,8 @@ own ports, covering everything the dashboard shows today.
 2. Feature parity with today's dashboard: per-GPU utilization, memory and temperature (2 s refresh,
    5-minute graphs); MIG partitions as their own entries with utilization; idle timer, idle history
    and Teams alerts; process owners/avatars and the GPU Processes list; running containers; disk
-   usage with the biggest-folder scan; per-server online/offline.
+   usage with the biggest-folder scan; per-server online/offline; Teams cards when a server's SSH
+   access fails and recovers.
 3. MIG stays correct when partitions exist, change, or cannot be measured (see *MIG*).
 4. The Jetson shows its GPU (today the GPU is dropped because its memory reads `[N/A]`).
 5. Everything runs in Docker: the stack and the dashboard on the GPU server, a small agent on the
@@ -109,6 +111,11 @@ own ports, covering everything the dashboard shows today.
  │        ▲ HTTP API every 2 s                          │remote │ Prometheus (agent mode)   │
  │ nvtop-tracker dashboard  :13000  ── SSE ──► browsers │write  └───────────────────────────┘
  └──────────────────────────────────────────────────────┘
+        ▲ remote write: nvtop_ssh_up per server
+ ┌──────────────────────────────────────────────────────┐
+ │ Probe workstation (developers' network): deploy/probe│
+ │   blackbox_exporter (SSH banner, every 30 s) + agent │
+ └──────────────────────────────────────────────────────┘
 ```
 
 ### Why our own exporter instead of NVIDIA's dcgm-exporter
@@ -160,6 +167,7 @@ config or the agent's; the exporter does not know the server name.
 | `nvtop_disk_size_kib`, `nvtop_disk_used_kib`, `nvtop_disk_usage_percent` | `mountpoint, filesystem` | `df -kPT`, same filters as today. |
 | `nvtop_disk_top_folder_kib` | `mountpoint, path` | Best-effort `du`, as today. |
 | `nvtop_poll_success` (0/1), `nvtop_poll_last_success_timestamp_seconds` | `poll` (`gpu`, `processes`, `mig`, `disk`, `containers`) | Freshness and failure state. |
+| `nvtop_ssh_up` (0/1), `nvtop_ssh_probe_duration_seconds` | `server`, `instance` | From the SSH probe agent (blackbox `probe_success` / `probe_duration_seconds`, renamed). |
 
 "Absent means unknown" is the rule every metric follows.
 
@@ -196,26 +204,47 @@ config or the agent's; the exporter does not know the server name.
   history continues for partitions that keep their index.
 - A GPU leaving MIG mode goes back to a single entry with its `nvidia-smi` utilization.
 
-### Freshness and "unreachable"
+### Freshness
 
 - A server's GPU data is current while
   `time() - nvtop_poll_last_success_timestamp_seconds{poll="gpu"}` is at most ~10 s. That covers
   host down, exporter down, a hung `nvidia-smi`, the Jetson's agent down, and the network between
   the Jetson and the GPU server. Both hosts are NTP-synchronized; the timestamp comes from each
   exporter's clock.
-- Not current → the server shows offline and the notifier gets `observe(ok: false)` with an error
-  such as `sem dados novos há 2min`. Down notice, hourly reminders and recovery work exactly as
-  today (5 min, 1 h).
+- Not current → the server shows offline on the dashboard (with an error such as
+  `sem dados novos do exporter há 2min`) and its GPUs leave the idle evaluation. It sends **no**
+  Teams card: those watch SSH access (next section).
 - Only GPU freshness decides online/offline. A stale disk, container or process poll keeps or
   empties its own block, as today.
+
+### SSH access (Teams "inacessível" / "voltou")
+
+The down/recovery cards exist to watch whether the team can reach the servers over SSH; the
+dashboard no longer uses SSH, so they cannot come from its polling any more.
+
+- A **probe agent** on a workstation in the developers' network (one that reaches every server; the
+  GPU server cannot reach the Jetson) runs `blackbox_exporter` and a Prometheus agent. Every 30 s
+  it opens a TCP connection to each server's SSH port and expects the `SSH-2.0-` banner: the
+  network path and the SSH service work, without a key or a login.
+- The agent renames the results to `nvtop_ssh_up` (1/0) and `nvtop_ssh_probe_duration_seconds`,
+  labels them with `server`, and remote-writes them to the team's Prometheus.
+- `nvtop_ssh_up == 0` → the notifier's `observe(ok: false)`; after 5 minutes the down card
+  ("Último erro: SSH não respondeu ao teste de conexão"), hourly reminders, and a recovery card,
+  exactly as before. No probe result for a server (probe host down) changes nothing.
+- The dashboard header shows `SSH ok (12 ms)` / `SSH down` next to the update time.
 
 ### Prometheus unreachable
 
 - A failing query (Prometheus down, bad credentials) marks no server as down and feeds no idle
   evaluation: the dashboard shows the last data as stale with the error, and the notifier computes
   nothing from it.
-- Prometheus itself is tracked like a server named `Prometheus (nvtop)`: down for 5 min → one
-  down card, hourly reminders, a recovery card, reusing the existing cards.
+- No Teams card for Prometheus itself: the dashboard header shows `Prometheus inacessível: …`.
+
+### Inference-only servers
+
+A server with `"idleAlerts": false` in `config.json` (the Jetson) never appears in the Teams idle
+card and its GPU cards never turn yellow or red; its idle timer and idle history stay visible.
+Idle is the normal state of an inference server.
 
 ### Jetson GPU memory
 
@@ -252,8 +281,8 @@ Dashboard `config.json`:
 
 - New: `prometheusUrl` (e.g. `http://127.0.0.1:19090`). Prometheus credentials come from
   environment variables, never from the repo.
-- `servers`: `[{ "name": "GPU Server 1" }, { "name": "GPU Server 2" }]`; `name` matches the
-  `server` label.
+- `servers`: `[{ "name": "GPU Server 1" }, { "name": "GPU Server 2", "idleAlerts": false }]`;
+  `name` matches the `server` label.
 - Kept: `port`, `gpuPollIntervalMs`, `gpuHistoryMinutes`, `diskStorageAlertThreshold`,
   `userAvatars`, `idleHistoryFile`, `teamsWebhookUrl`.
 - Moved to the exporter: the `*QueryCommand` fields, `diskTopFolderMountPrefixes`,
@@ -353,8 +382,9 @@ Compares the new board with the old one while both run on live data. It lives in
   and disappearing, with and without partitions in the XML.
 - Dashboard source, against a fake Prometheus (canned API responses): the same state as today for
   a server with partitions and for the Jetson; missing utilization → `null`; stale GPU timestamp →
-  offline and `observe(ok: false)`; failing Prometheus → no server down, no idle alert,
-  `Prometheus (nvtop)` down after 5 min; the range query fills the graphs.
+  offline, no Teams card; failing SSH probe → down card after 5 min, recovery card; failing
+  Prometheus → no card, no server down, no idle alert; `idleAlerts: false` → out of the idle card;
+  the range query fills the graphs.
 - Existing tests for parsers, idle history, notifier and Teams cards keep passing; the SSH manager
   and its tests go away.
 - Live: the spikes, and the parity check during the parallel run in *Rollout*.
@@ -390,6 +420,10 @@ Compares the new board with the old one while both run on live data. It lives in
    it.
 3. Dashboard port: `13000` (any free port was acceptable).
 4. The deploying developer keeps the Prometheus basic-auth credentials.
+5. Teams' down/recovery cards watch SSH access, probed without keys from a workstation in the
+   developers' network that reaches every server; stale exporter data only shows on the dashboard.
+6. No Teams card for an unreachable Prometheus.
+7. Inference-only servers (the Jetson) get no idle alerts and no idle colors.
 
 ## Left to the builder
 

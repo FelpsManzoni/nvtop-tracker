@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { Collector, PROMETHEUS_NAME } = require('../src/collector');
+const { Collector, SSH_DOWN_ERROR } = require('../src/collector');
 const { DEFAULTS } = require('../src/config');
 const idleStore = require('../src/idleStore');
 
@@ -11,10 +11,11 @@ const SERVER = 'GPU Server 1';
 const tmpIdleFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'collector-')), 'idle-history.json');
 
 // What nvtop-exporter publishes for one whole GPU, as Prometheus returns it. `ageMs` is how long
-// ago the exporter's GPU poll last succeeded.
-function exporterSeries({ util = 0, ageMs = 1000, now = Date.now(), server = SERVER } = {}) {
+// ago the exporter's GPU poll last succeeded; `ssh` (1/0) adds the SSH probe's result.
+function exporterSeries({ util = 0, ageMs = 1000, now = Date.now(), server = SERVER, ssh } = {}) {
   const S = (name, labels, value) => ({ labels: { __name__: name, server, ...labels }, value });
   return [
+    ...(ssh === undefined ? [] : [S('nvtop_ssh_up', {}, ssh), S('nvtop_ssh_probe_duration_seconds', {}, 0.012)]),
     S('nvtop_gpu_info', { key: '0', label: 'GPU 0', gpu: '0', name: 'NVIDIA GPU', mig: 'false', gpu_instance_id: '', unified_memory: 'false' }, 1),
     S('nvtop_gpu_utilization_percent', { key: '0' }, util),
     S('nvtop_gpu_memory_used_mib', { key: '0' }, 1),
@@ -25,7 +26,7 @@ function exporterSeries({ util = 0, ageMs = 1000, now = Date.now(), server = SER
 }
 
 // Fake Prometheus: `ctl.series` is what the next instant query returns, `ctl.fail` makes it throw.
-function setup({ idleHistoryFile = tmpIdleFile(), teamsWebhookUrl = '' } = {}) {
+function setup({ idleHistoryFile = tmpIdleFile(), teamsWebhookUrl = '', servers = [{ name: SERVER }] } = {}) {
   const ctl = { series: exporterSeries(), fail: null, range: [], queries: 0, hold: null };
   const client = {
     query: async () => {
@@ -36,14 +37,14 @@ function setup({ idleHistoryFile = tmpIdleFile(), teamsWebhookUrl = '' } = {}) {
     },
     queryRange: async () => ctl.range,
   };
-  const collector = new Collector({ ...DEFAULTS, idleHistoryFile, teamsWebhookUrl, servers: [{ name: SERVER }] }, { client });
+  const collector = new Collector({ ...DEFAULTS, idleHistoryFile, teamsWebhookUrl, servers }, { client });
   const updates = [];
   collector.on('update', (s) => updates.push(s));
   const cards = [];
   if (collector.notifier) collector.notifier.send = async (card) => { cards.push(card); };
   return { collector, ctl, updates, cards };
 }
-const setupNotify = (idleHistoryFile) => setup({ idleHistoryFile, teamsWebhookUrl: 'https://example.invalid/hook' });
+const setupNotify = (idleHistoryFile, opts = {}) => setup({ idleHistoryFile, teamsWebhookUrl: 'https://example.invalid/hook', ...opts });
 
 test('GPU entries read from Prometheus carry the idle summary', async () => {
   const { collector, updates } = setup();
@@ -132,22 +133,42 @@ test('a server Prometheus knows nothing about shows offline with an explanation'
   assert.deepEqual([updates[0].server, updates[0].connected, updates[0].error], [SERVER, false, 'nenhum dado do exporter no Prometheus']);
 });
 
-test('stale data is observed as down and a down card goes out after 5 minutes', async () => {
-  const { collector, ctl, cards } = setupNotify();
-  ctl.series = exporterSeries({ ageMs: 60_000 });
+test('stale exporter data sends no Teams card; a failing SSH probe does, after 5 minutes', async () => {
+  const { collector, ctl, cards, updates } = setupNotify();
+  ctl.series = exporterSeries({ ageMs: 60_000, ssh: 1 });
   const T = Date.now();
   await collector.poll();
-  assert.strictEqual(typeof collector.notifier.toJSON()[SERVER].downSince, 'number');
-  await collector.tickNotifier(T + 60_000);
+  await collector.tickNotifier(T + 10 * 60_000);
+  assert.strictEqual(cards.length, 0, 'stale GPU data alone is not an outage');
+  assert.deepEqual(updates.at(-1).ssh, { up: true, latencyMs: 12 });
+
+  ctl.series = exporterSeries({ ssh: 0 });
+  const D = Date.now();
+  await collector.poll();
+  await collector.tickNotifier(D + 60_000);
   assert.strictEqual(cards.length, 0);
-  await collector.tickNotifier(T + 5 * 60_000 + 1000);
+  await collector.tickNotifier(D + 5 * 60_000 + 1000);
   assert.strictEqual(cards.length, 1);
   assert.match(cards[0].body[0].text, /GPU Server 1 inacessível/);
-  assert.match(cards[0].body[2].text, /sem dados novos do exporter/);
+  assert.match(cards[0].body[2].text, new RegExp(SSH_DOWN_ERROR));
+
+  ctl.series = exporterSeries({ ssh: 1 });
+  await collector.poll();
+  await collector.tickNotifier(D + 6 * 60_000);
+  assert.match(cards[1].body[0].text, /GPU Server 1 voltou/);
 });
 
-test('a Prometheus outage reports no server down, no idle from old data, and one Prometheus down card', async () => {
+test('without an SSH probe for a server, nothing is reported about its reachability', async () => {
+  const { collector, ctl, updates } = setupNotify();
+  ctl.series = exporterSeries({ ageMs: 60_000 });
+  await collector.poll();
+  assert.deepEqual(updates.at(-1).ssh, { up: null, latencyMs: null });
+  assert.strictEqual(collector.notifier.toJSON()[SERVER], undefined);
+});
+
+test('a Prometheus outage sends no card, reports no server down and computes no idle from old data', async () => {
   const { collector, ctl, updates, cards } = setupNotify();
+  ctl.series = exporterSeries({ ssh: 1 });
   const T = Date.now();
   await collector.poll(); // GPU 0 idle from now on
   ctl.fail = new Error('prometheus: request failed (network error)');
@@ -155,22 +176,29 @@ test('a Prometheus outage reports no server down, no idle from old data, and one
   const last = updates.at(-1);
   assert.deepEqual([last.connected, last.error], [false, 'Prometheus inacessível: prometheus: request failed (network error)']);
   assert.strictEqual(collector.notifier.toJSON()[SERVER].downSince, null);
-
   // 13 h later the GPU would be due an idle card if its old entries still counted.
   await collector.tickNotifier(T + 13 * 3600_000);
-  assert.strictEqual(cards.length, 1);
-  assert.match(cards[0].body[0].text, new RegExp(`${PROMETHEUS_NAME.replace(/[()]/g, '\\$&')} inacessível`));
+  assert.strictEqual(cards.length, 0);
+});
 
-  ctl.fail = null;
+test('idleAlerts: false keeps a server out of the idle card and tells the browser', async () => {
+  const servers = [{ name: SERVER }, { name: 'GPU Server 2', idleAlerts: false }];
+  const { collector, ctl, cards, updates } = setupNotify(undefined, { servers });
+  ctl.series = [...exporterSeries({ ssh: 1 }), ...exporterSeries({ server: 'GPU Server 2', ssh: 1 })];
+  const T = Date.now();
   await collector.poll();
-  await collector.tickNotifier(T + 13 * 3600_000 + 60_000);
-  assert.match(cards[1].body[0].text, /Prometheus \(nvtop\) voltou/);
+  await collector.tickNotifier(T + 13 * 3600_000);
+  assert.strictEqual(cards.length, 1);
+  const rows = cards[0].body.filter((b) => b.type === 'ColumnSet').slice(1).map((r) => r.columns[0].items[0].text);
+  assert.deepEqual(rows, ['GPU Server 1']);
+  assert.deepEqual(updates.filter((u) => u.server === 'GPU Server 2').map((u) => u.idleAlerts), [false]);
+  assert.deepEqual(updates.filter((u) => u.server === SERVER).map((u) => u.idleAlerts), [true]);
 });
 
 test('notifier state is saved with the idle history and restored on restart', async () => {
   const file = tmpIdleFile();
   const first = setupNotify(file);
-  first.ctl.series = exporterSeries({ ageMs: 60_000 });
+  first.ctl.series = exporterSeries({ ssh: 0 });
   const T = Date.now();
   await first.collector.poll();
   await first.collector.tickNotifier(T + 5 * 60_000 + 1000);
@@ -214,7 +242,7 @@ test('overlapping notifier ticks do not double-send', async () => {
   let release;
   const held = new Promise((r) => { release = r; });
   collector.notifier.send = (card) => { cards.push(card); return held; };
-  ctl.series = exporterSeries({ ageMs: 60_000 });
+  ctl.series = exporterSeries({ ssh: 0 });
   const T = Date.now();
   await collector.poll();
   const a = collector.tickNotifier(T + 301_000);

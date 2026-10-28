@@ -288,3 +288,12 @@ test('unknown(): a server whose data source failed is neither idle-reported nor 
   await n.tick(25 * H);
   assert.equal(sent.length, 2);
 });
+
+test('setEntries feeds idle evaluation without touching reachability; observe without entries keeps them', async () => {
+  const { n, sent } = make();
+  n.setEntries('S1', [gpu('3', 0)]);
+  n.observe('S1', { ok: true, now: 12 * H }); // an SSH probe success carries no GPU entries
+  await n.tick(12 * H);
+  assert.equal(sent.length, 1);
+  assert.equal(n.toJSON().S1.downSince, null);
+});

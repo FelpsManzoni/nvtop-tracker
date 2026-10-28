@@ -33,8 +33,9 @@ own.
   after 10 minutes, and short bursts of activity (10 minutes or less) don't end them. The data is
   saved to `data/idle-history.json`, so it survives restarts.
 - **Teams alerts**: optional. GPUs idle for 12 h or more are reported every 12 h in one batched
-  message; a server with no fresh data for 5 minutes gets an alert with hourly reminders and a
-  recovery message when it is back. Prometheus itself is watched the same way.
+  message (servers with `idleAlerts: false`, e.g. inference-only, are left out); a server whose SSH
+  access fails for 5 minutes gets an alert with hourly reminders and a recovery message when it is
+  back.
 - **Disk usage**: per-mount usage with a configurable alert threshold, plus a "biggest
   subfolder" scan for mounts you care about.
 - **Containers & GPU processes**: running containers, and which processes (and users) are
@@ -141,7 +142,7 @@ All fields are optional; anything you omit falls back to the default below (see 
 
 | Field | Default | Description |
 |---|---|---|
-| `servers` | `[]` | Array of `{ name }`. Each `name` must equal the `server` label of that host's exporter series in Prometheus. |
+| `servers` | `[]` | Array of `{ name, idleAlerts? }`. Each `name` must equal the `server` label of that host's series in Prometheus. `idleAlerts: false` (e.g. an inference-only server) keeps it out of Teams idle alerts and idle card colors. |
 | `port` | `3000` | Port the dashboard listens on. |
 | `prometheusUrl` | `http://127.0.0.1:19090` | Prometheus to read from. Basic-auth credentials come from the `PROMETHEUS_USERNAME` / `PROMETHEUS_PASSWORD` environment variables, never from the file. |
 | `gpuPollIntervalMs` | `2000` | How often to query Prometheus. |
@@ -185,7 +186,11 @@ Set `teamsWebhookUrl` (empty disables them) to a Teams Workflows webhook:
 The URL is a secret: it is never logged or sent to the browser. Sent-message state is kept in
 `notifier-state.json` next to the idle history, so a restart does not repeat alerts. When
 Prometheus cannot be queried, no server is reported down and no idle alert is computed from old
-data; Prometheus gets its own down/recovery messages as `Prometheus (nvtop)`.
+data.
+
+The unreachable/recovery messages watch SSH access: an SSH probe agent (`blackbox_exporter`, no
+key, it only checks the `SSH-2.0-` banner) on a machine that reaches every server writes
+`nvtop_ssh_up` per server into Prometheus. Stale exporter data only shows on the dashboard.
 
 ## Development
 
