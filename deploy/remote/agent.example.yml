@@ -1,0 +1,19 @@
+# Template: init.sh writes agent.yml from it.
+global:
+  scrape_interval: 2s
+  scrape_timeout: 2s
+
+scrape_configs:
+  - job_name: nvtop
+    static_configs:
+      - targets: ["127.0.0.1:19101"]
+        labels:
+          server: "__SERVER_NAME__" # must match a server name in the hub's config.json
+
+remote_write:
+  - url: __HUB_URL__/api/v1/write
+    basic_auth:
+      username: nvtop
+      password_file: /etc/prometheus/password
+    queue_config:
+      batch_send_deadline: 1s # the dashboard calls data older than ~10 s stale

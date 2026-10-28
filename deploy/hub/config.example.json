@@ -1,0 +1,11 @@
+{
+  "servers": [
+    { "name": "GPU Server 1" },
+    { "name": "GPU Server 2" }
+  ],
+  "port": 13000,
+  "prometheusUrl": "http://127.0.0.1:19090",
+  "userAvatars": { "jsilva": "avatars/jsilva.png" },
+  "idleHistoryFile": "data/idle-history.json",
+  "teamsWebhookUrl": ""
+}

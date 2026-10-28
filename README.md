@@ -91,25 +91,47 @@ PROMETHEUS_USERNAME=... PROMETHEUS_PASSWORD=... npm start
 Open `http://localhost:3000`. `config.json` and `exporter.config.json` are gitignored; set
 `NVTOP_CONFIG` / `NVTOP_EXPORTER_CONFIG` to read them from another path.
 
-## Running the dashboard as a service (Ubuntu / systemd)
+## Deploying with Docker
+
+One `Dockerfile` builds both images (`--target dashboard`, `--target exporter`); `deploy/` has two
+compose projects. Hosts need Docker with the NVIDIA container runtime and a user in the `docker`
+group (no sudo needed). Host-specific values (server name, data disks, the hub's address,
+credentials) are passed to `init.sh`, which writes them only into gitignored files.
+
+**Hub** (`deploy/hub`): the team's Prometheus on `:19090` (basic auth, 30-day retention, receives
+remote hosts' writes), this host's exporter, a Docker socket proxy and the dashboard on `:13000`.
+It is independent of any other monitoring stack on the host.
 
 ```bash
-npm install
-cp config.example.json config.json   # then edit it
-sudo ./deploy/install.sh             # or: sudo ./deploy/install.sh <user>
+cd nvtop-tracker/deploy/hub
+cp config.example.json config.json   # servers, avatars; keep teamsWebhookUrl empty until cut-over
+./init.sh --name "GPU Server 1" --data-disk /data/disk1 --data-disk /data/disk2
+docker compose up -d --build
 ```
 
-The service runs as the user who invoked `sudo` (or the one you pass). Re-run `install.sh` after
-moving the repo or changing Node versions. It runs the service with your nvm default Node if you
-use nvm, otherwise the `node` on your login shell's `PATH`, and refuses anything older than
-Node 18. To pick a specific binary: `sudo NODE=/path/to/node ./deploy/install.sh`.
+**Remote hosts** (`deploy/remote`): for a host the hub cannot reach, its exporter and a
+Prometheus agent that remote-writes to the hub. `--unified-memory` is for Jetson-style GPUs.
 
 ```bash
-systemctl status nvtop-tracker
-sudo systemctl restart nvtop-tracker   # after editing config.json
-journalctl -u nvtop-tracker -f         # logs
-sudo ./deploy/uninstall.sh             # remove the service
+cd nvtop-tracker/deploy/remote
+./init.sh --name "GPU Server 2" --hub-url http://<hub-host>:19090 --unified-memory
+docker compose up -d --build         # init.sh asks for PROMETHEUS_PASSWORD from the hub's .env
 ```
+
+`init.sh` remembers its options in `.env`, so re-running it needs none (`--new-password` rotates
+the hub's password). Update a host with `git pull && docker compose up -d --build`; logs with
+`docker compose logs -f`. Exporters listen on `127.0.0.1` only; the containers list goes through a
+proxy that allows `GET /containers/json` and nothing else, over a Unix socket. Where DCGM is
+installed, the exporter uses the host's own `dcgmi`, so it always matches the host engine.
+
+### Moving from the SSH deployment
+
+1. Copy the old deployment's `data/` and `avatars/` into `deploy/hub/`, so idle history and Teams
+   state carry over, then start the stacks with `teamsWebhookUrl` still empty (the old deployment
+   keeps sending the alerts).
+2. Run the parity check (below) against the old dashboard until runs come back clean.
+3. In one sitting: stop the old service, copy `data/` again, set `teamsWebhookUrl` in
+   `deploy/hub/config.json`, `docker compose restart dashboard`, and announce the new URL.
 
 ## Configuration
 
