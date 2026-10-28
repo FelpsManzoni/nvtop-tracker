@@ -372,8 +372,9 @@ Compares the new board with the old one while both run on live data. It lives in
 
 1. The Jetson's GPU memory is system memory (`MemTotal − MemAvailable`), not the sum of process
    memory.
-2. The GPU server's deployment lives in the deploying developer's home directory and runs under
-   that account; the Prometheus and dashboard data folders live under it.
+2. The GPU server's deployment lives on one of its data disks, not in a home directory, and runs
+   under the deploying developer's account; the Prometheus and dashboard data folders live under
+   it.
 3. Dashboard port: `13000` (any free port was acceptable).
 4. The deploying developer keeps the Prometheus basic-auth credentials.
 
