@@ -117,10 +117,19 @@ function gpuFreshness(series, now, staleAfterMs) {
   return { fresh: false, error: `sem dados novos do exporter há ${ago}` };
 }
 
+// SSH reachability from the probe agent: up true/false, null when no probe reports this server.
+function sshState(series) {
+  const up = series.find((s) => s.labels.__name__ === 'nvtop_ssh_up');
+  const took = series.find((s) => s.labels.__name__ === 'nvtop_ssh_probe_duration_seconds');
+  if (!up) return { up: null, latencyMs: null };
+  return { up: up.value === 1, latencyMs: up.value === 1 && took ? Math.round(took.value * 1000) : null };
+}
+
 function buildServerState(series, { now, staleAfterMs, diskAlertThreshold, userAvatars }) {
   const entries = gpuEntries(series);
   return {
     ...gpuFreshness(series, now, staleAfterMs),
+    ssh: sshState(series),
     gpu: entries,
     gpuProcesses: gpuProcesses(series, entries, userAvatars),
     docker: { containers: containers(series), images: [] },

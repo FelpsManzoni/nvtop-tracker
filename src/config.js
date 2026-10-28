@@ -2,7 +2,8 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULTS = {
-  // Each name must equal the `server` label Prometheus puts on that host's nvtop-exporter series.
+  // { name, idleAlerts? }: name equals the `server` label of that host's series in Prometheus;
+  // idleAlerts: false (e.g. an inference-only server) keeps it out of idle alerts and card colors.
   servers: [],
   port: 3000,
   // The Prometheus fed by nvtop-exporter. Credentials come from PROMETHEUS_USERNAME / PROMETHEUS_PASSWORD.
@@ -26,8 +27,9 @@ function loadConfig(configPath = process.env.NVTOP_CONFIG || path.join(__dirname
     userConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
   const config = { ...DEFAULTS, ...userConfig };
-  if (!Array.isArray(config.servers) || config.servers.some((s) => !s || typeof s.name !== 'string' || !s.name)) {
-    throw new Error('config.servers must be a list of { "name": "<server label>" }');
+  if (!Array.isArray(config.servers) || config.servers.some((s) => !s || typeof s.name !== 'string' || !s.name ||
+      (s.idleAlerts !== undefined && typeof s.idleAlerts !== 'boolean'))) {
+    throw new Error('config.servers must be a list of { "name": "<server label>", "idleAlerts"?: boolean }');
   }
   const avatars = config.userAvatars;
   if (!avatars || typeof avatars !== 'object' || Array.isArray(avatars) ||

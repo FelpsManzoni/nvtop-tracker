@@ -10,9 +10,8 @@ const { byServer, buildServerState, historySamples } = require('./promState');
 
 const IDLE_SAVE_INTERVAL_MS = 60_000;
 const NOTIFY_INTERVAL_MS = 60_000;
-// The notifier tracks the team's Prometheus like a server: its outage gets its own down card
-// instead of every server being reported down.
-const PROMETHEUS_NAME = 'Prometheus (nvtop)';
+// The Teams "inacessível" card watches SSH access to the servers (the probe agent's test).
+const SSH_DOWN_ERROR = 'SSH não respondeu ao teste de conexão';
 const SERIES_QUERY = '{__name__=~"nvtop_.+"}';
 const HISTORY_QUERY = '{__name__=~"nvtop_gpu_(info|utilization_percent|memory_used_mib|memory_total_mib)"}';
 
@@ -28,6 +27,8 @@ function initialState(name) {
     docker: { containers: [], images: [] },
     gpuProcesses: [],
     error: null,
+    ssh: { up: null, latencyMs: null },
+    idleAlerts: true,
   };
 }
 
@@ -54,7 +55,7 @@ class Collector extends EventEmitter {
       : null;
 
     for (const server of config.servers) {
-      this.state.set(server.name, initialState(server.name));
+      this.state.set(server.name, { ...initialState(server.name), idleAlerts: server.idleAlerts !== false });
       this.buffers.set(server.name, new RollingBuffer({ historyMinutes: config.gpuHistoryMinutes }));
       this.idle.set(server.name, IdleHistory.fromJSON(savedIdle[server.name]));
     }
@@ -133,9 +134,8 @@ class Collector extends EventEmitter {
         this._prometheusFailed(err);
         return;
       }
-      this.notifier?.observe(PROMETHEUS_NAME, { ok: true, entries: [], now: Date.now() });
       const grouped = byServer(result.series);
-      for (const server of this.config.servers) this._apply(server.name, grouped.get(server.name) || [], result.time);
+      for (const server of this.config.servers) this._apply(server, grouped.get(server.name) || [], result.time);
     } finally {
       this.polling = false;
     }
@@ -143,7 +143,10 @@ class Collector extends EventEmitter {
 
   // Freshness compares the exporter's own timestamp with Prometheus' evaluation time; everything
   // the dashboard records (graphs, idle history, notifier) uses this host's clock, as before.
-  _apply(name, series, evaluatedAt) {
+  // Stale GPU data only shows the server offline and pauses idle evaluation; Teams' down/recovery
+  // cards follow the SSH probe.
+  _apply(server, series, evaluatedAt) {
+    const { name } = server;
     const state = this.state.get(name);
     const now = Date.now();
     const s = buildServerState(series, {
@@ -166,14 +169,17 @@ class Collector extends EventEmitter {
         gpuProcesses: s.gpuProcesses,
         docker: s.docker,
         disk: s.disk,
+        ssh: s.ssh,
         timestamp: now,
       });
-      this.notifier?.observe(name, { ok: true, entries: state.gpu, now });
+      // An inference-only server (idleAlerts: false) never appears in Teams' idle card.
+      this.notifier?.setEntries(name, server.idleAlerts === false ? [] : state.gpu);
     } else {
       // The last GPU entries stay (the browser shows them offline); stale data never reaches idle tracking.
-      Object.assign(state, { connected: false, error: s.error, timestamp: now });
-      this.notifier?.observe(name, { ok: false, error: s.error, now });
+      Object.assign(state, { connected: false, error: s.error, ssh: s.ssh, timestamp: now });
+      this.notifier?.unknown(name);
     }
+    if (s.ssh.up !== null) this.notifier?.observe(name, s.ssh.up ? { ok: true, now } : { ok: false, error: SSH_DOWN_ERROR, now });
     this.emit('update', { ...state });
   }
 
@@ -186,7 +192,6 @@ class Collector extends EventEmitter {
       this.notifier?.unknown(server.name);
       this.emit('update', { ...state });
     }
-    this.notifier?.observe(PROMETHEUS_NAME, { ok: false, error: err.message, now });
   }
 
   getSnapshot() {
@@ -194,4 +199,4 @@ class Collector extends EventEmitter {
   }
 }
 
-module.exports = { Collector, PROMETHEUS_NAME };
+module.exports = { Collector, SSH_DOWN_ERROR };

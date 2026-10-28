@@ -91,3 +91,10 @@ test('historySamples rebuilds RollingBuffer samples per server in time order', (
     [2000, [['0', 5, null, 1000, true]]],
   ]);
 });
+
+test('the SSH probe result: up with its latency, down, or unknown when no probe reports the server', () => {
+  const ssh = (up, seconds) => [S('nvtop_ssh_up', {}, up), S('nvtop_ssh_probe_duration_seconds', {}, seconds)];
+  assert.deepEqual(buildServerState(ssh(1, 0.0234), opts).ssh, { up: true, latencyMs: 23 });
+  assert.deepEqual(buildServerState(ssh(0, 5), opts).ssh, { up: false, latencyMs: null });
+  assert.deepEqual(buildServerState([fresh], opts).ssh, { up: null, latencyMs: null });
+});
