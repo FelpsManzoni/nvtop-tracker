@@ -309,12 +309,13 @@ Compares the new board with the old one while both run on live data. It lives in
 | Utilization | 1-minute mean of each board's graph history within ±10 points (idle/busy through the status pill) |
 | Memory | Within ±2 % of total |
 | Temperature | Within ±3 °C, for 2 minutes |
-| Status pill | Same state (in use / idle / `n/a` / `MIG` / offline); idle time within ±10 s |
+| Status pill | Same state (in use / idle / `n/a` / `MIG` / offline); idle time within ±10 s is informational |
 | Idle history (last idle, 30 d) | Within ±1 min |
 | Owners per GPU | Same set |
 | GPU processes | Same (GPU, pid, owner) set; command equal up to the new board's truncation |
 | Containers | Same names |
 | Disk | Same mountpoints; usage within ±1 point |
+| Rendered rows | Each board renders as many process, container and disk rows as it received |
 
 - Why means and longer windows for utilization and temperature: the first live run compared
   instant readings and failed on them. Measured on the GPU server against `nvidia-smi` sampled every
@@ -322,6 +323,12 @@ Compares the new board with the old one while both run on live data. It lives in
   ±10 points) and 96 % (temperature, ±3 °C) of the time, while `nvidia-smi` itself differed from
   its own reading 4 s earlier 16 % and 7 % of the time: training loads swing faster than the gap
   between the two boards' samples, so instant readings cannot be compared, but means can.
+- Why the live idle timer is informational: each board resets it on any reading of 1 % or more,
+  sampling at its own instants. On a nearly idle GPU with short bursts (measured: 65 of 1047
+  readings over 35 minutes, some a single reading apart by about a minute), a burst caught by only
+  one board resets only its timer, and the two timers then differ until both catch the next one.
+  A timer that never resets or always resets still shows as a different pill state, and the idle
+  history, which ignores bursts, must agree within a minute.
 - Expected differences, reported but not counted: a unified-memory GPU exists only on the new
   board; the biggest folder may differ, since the new exporter reads every directory and the old
   one only what its SSH user could read.
