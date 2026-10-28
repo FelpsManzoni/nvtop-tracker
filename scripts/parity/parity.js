@@ -64,6 +64,12 @@ function capture(page, name) {
         gpu: s.gpu.map(({ key, label, mig, utilization, memory, temperature, unifiedMemory, lastIdleMs, idle30dMs }) => ({
           key, label, mig: !!mig, utilization, memory, temperature, unifiedMemory: !!unifiedMemory, lastIdleMs, idle30dMs,
         })),
+        // Mean utilization over the last minute of the board's own graph history, per GPU entry.
+        util1m: Object.fromEntries(Object.entries(s.historyByGpu || {}).map(([k, pts]) => {
+          const since = pts.length ? pts[pts.length - 1].timestamp - 60_000 : 0;
+          const vals = pts.filter((p) => p.timestamp >= since && Number.isFinite(p.utilization)).map((p) => p.utilization);
+          return [k, vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : null];
+        })),
         gpuProcesses: (s.gpuProcesses || []).map(({ gpuKey, pid, owner, fullCommand }) => ({ gpuKey, pid, owner, fullCommand })),
         docker: { containers: ((s.docker && s.docker.containers) || []).map(({ name }) => ({ name })) },
         disk: s.disk.map(({ mountpoint, usagePercent, topFolder }) => ({ mountpoint, usagePercent, topFolder })),

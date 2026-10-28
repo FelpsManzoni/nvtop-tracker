@@ -306,9 +306,9 @@ Compares the new board with the old one while both run on live data. It lives in
 |---|---|
 | Servers, online/offline | Equal |
 | GPU entries (labels, order), `MIG` / `n/a` tags | Equal |
-| Utilization | Same idle/busy class (< 1 %); value within ±10 points |
+| Utilization | 1-minute mean of each board's graph history within ±10 points (idle/busy through the status pill) |
 | Memory | Within ±2 % of total |
-| Temperature | Within ±3 °C |
+| Temperature | Within ±3 °C, for 2 minutes |
 | Status pill | Same state (in use / idle / `n/a` / `MIG` / offline); idle time within ±10 s |
 | Idle history (last idle, 30 d) | Within ±1 min |
 | Owners per GPU | Same set |
@@ -316,6 +316,12 @@ Compares the new board with the old one while both run on live data. It lives in
 | Containers | Same names |
 | Disk | Same mountpoints; usage within ±1 point |
 
+- Why means and longer windows for utilization and temperature: the first live run compared
+  instant readings and failed on them. Measured on the GPU server against `nvidia-smi` sampled every
+  0.5 s, the exporter's values matched `nvidia-smi` at the moment of each poll 91 % (utilization,
+  ±10 points) and 96 % (temperature, ±3 °C) of the time, while `nvidia-smi` itself differed from
+  its own reading 4 s earlier 16 % and 7 % of the time: training loads swing faster than the gap
+  between the two boards' samples, so instant readings cannot be compared, but means can.
 - Expected differences, reported but not counted: a unified-memory GPU exists only on the new
   board; the biggest folder may differ, since the new exporter reads every directory and the old
   one only what its SSH user could read.
