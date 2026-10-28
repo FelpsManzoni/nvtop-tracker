@@ -23,10 +23,10 @@
   - `dcgmDiscoveryCommand`: `timeout 10 dcgmi discovery -c`
   - `dcgmActivityCommand`: `timeout 10 dcgmi dmon -e 1001 -c 2 -d 1000 -i {entities}` (`{entities}` = `i:49,i:50`)
 - MIG/DCGM work never delays the GPU update, never changes `connected`, at most one MIG poll in flight per server, and servers with no `null`-utilization GPU run no extra commands.
-- Branch `feat/mig-partitions`. Commit titles match `^(feature|feat|fix|docs|refactor|experiment|hotfix|test|chore): .+`. **Commit as** `GIT_AUTHOR_EMAIL=felipemanzoni3@gmail.com GIT_COMMITTER_EMAIL=felipemanzoni3@gmail.com git commit …` (the session env otherwise forces another address); every message ends with:
+- Branch `feat/mig-partitions`. Commit titles match `^(feature|feat|fix|docs|refactor|experiment|hotfix|test|chore): .+`. **Commit as** `GIT_AUTHOR_EMAIL=<author email> GIT_COMMITTER_EMAIL=<author email> git commit …` (the session env otherwise forces another address); every message ends with:
   ```
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD
+  Claude-Session: <session url>
   ```
 - Never push or merge.
 
@@ -126,12 +126,12 @@ Write all three `mig_device` and all three `process_info` blocks out in full (th
 
 ```js
 test('parseGpuCsv keeps a GPU whose utilization is [N/A] and adds key/label', () => {
-  const gpus = parseGpuCsv('0, NVIDIA H200 NVL, 92, 71701, 143771, 47\n7, NVIDIA H200 NVL, [N/A], 10301, 143771, 36\n');
+  const gpus = parseGpuCsv('0, NVIDIA GPU, 92, 71701, 143771, 47\n7, NVIDIA GPU, [N/A], 10301, 143771, 36\n');
   assert.deepEqual(gpus.map((g) => [g.key, g.label, g.utilization]), [['0', 'GPU 0', 92], ['7', 'GPU 7', null]]);
   assert.deepEqual(gpus[1].memory, { used: 10301, total: 143771 });
 });
 test('parseGpuCsv still drops a line whose memory or temperature is not numeric', () => {
-  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, 5, [N/A], 143771, 36\n').length, 0);
+  assert.equal(parseGpuCsv('7, NVIDIA GPU, 5, [N/A], 143771, 36\n').length, 0);
 });
 test('parseGpuProcesses rows carry gpuKey and gpuLabel', () => { /* existing fixture → gpuKey '0', gpuLabel 'GPU 0' */ });
 test('parseMigXml reads partitions (framebuffer, not BAR1) and per-partition processes', () => {
@@ -209,8 +209,8 @@ Expected: all pass (existing collector tests still pass — the fake GPU line ha
 
 ```bash
 git add src/parsers.js src/idleHistory.js src/rollingBuffer.js test/
-GIT_AUTHOR_EMAIL=felipemanzoni3@gmail.com GIT_COMMITTER_EMAIL=felipemanzoni3@gmail.com git commit -m "feat: key GPUs by string, keep [N/A] GPUs, and parse MIG/DCGM output" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+GIT_AUTHOR_EMAIL=<author email> GIT_COMMITTER_EMAIL=<author email> git commit -m "feat: key GPUs by string, keep [N/A] GPUs, and parse MIG/DCGM output" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: <session url>"
 ```
 
 ---
@@ -234,7 +234,7 @@ Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
 
 - [ ] **Step 1: Write failing tests in `test/mig.test.js`**
 
-Use `gpu0 = { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA H200 NVL', utilization: 92, memory: {used: 1685, total: 143771}, temperature: 27 }`, `gpu7 = { id: 7, key: '7', label: 'GPU 7', name: 'NVIDIA H200 NVL', utilization: null, memory: {used: 33435, total: 143771}, temperature: 47 }`, and `mig7` = the parsed `test/fixtures/mig-gpu.xml`.
+Use `gpu0 = { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA GPU', utilization: 92, memory: {used: 1685, total: 143771}, temperature: 27 }`, `gpu7 = { id: 7, key: '7', label: 'GPU 7', name: 'NVIDIA GPU', utilization: null, memory: {used: 33435, total: 143771}, temperature: 47 }`, and `mig7` = the parsed `test/fixtures/mig-gpu.xml`.
 
 ```js
 test('a MIG GPU is replaced by one entry per partition with DCGM utilization', () => {
@@ -309,8 +309,8 @@ Expected: all pass, output pristine.
 
 ```bash
 git add src/mig.js src/collector.js src/config.js README.md config.example.json test/
-GIT_AUTHOR_EMAIL=felipemanzoni3@gmail.com GIT_COMMITTER_EMAIL=felipemanzoni3@gmail.com git commit -m "feat: show MIG partitions as GPU entries using DCGM utilization" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+GIT_AUTHOR_EMAIL=<author email> GIT_COMMITTER_EMAIL=<author email> git commit -m "feat: show MIG partitions as GPU entries using DCGM utilization" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: <session url>"
 ```
 
 ---
@@ -345,8 +345,8 @@ Expected: no syntax error; all tests pass.
 
 ```bash
 git add public/app.js public/style.css
-GIT_AUTHOR_EMAIL=felipemanzoni3@gmail.com GIT_COMMITTER_EMAIL=felipemanzoni3@gmail.com git commit -m "feat: render MIG partitions and unknown utilization on the dashboard" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+GIT_AUTHOR_EMAIL=<author email> GIT_COMMITTER_EMAIL=<author email> git commit -m "feat: render MIG partitions and unknown utilization on the dashboard" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: <session url>"
 ```
 
 - [ ] **Step 4: Verify against the real servers (controller)**

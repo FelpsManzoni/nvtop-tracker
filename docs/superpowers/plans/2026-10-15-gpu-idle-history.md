@@ -22,7 +22,7 @@
 - Work on branch `feat/gpu-idle-history`. Commit titles match `^(feature|feat|fix|docs|refactor|experiment|hotfix|test|chore): .+`; every commit message ends with:
   ```
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD
+  Claude-Session: <session url>
   ```
 - Never push, merge, or touch `stash@{0}`.
 
@@ -318,7 +318,7 @@ git add src/idleHistory.js test/idleHistory.test.js src/collector.js
 git commit -m "feat: record GPU idle periods with 10-minute hysteresis
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 ---
@@ -439,7 +439,7 @@ git add src/idleStore.js test/idleStore.test.js
 git commit -m "feat: add atomic JSON store for idle history
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 ---
@@ -674,7 +674,7 @@ git add src/config.js src/collector.js src/server.js .gitignore test/collector.t
 git commit -m "feat: persist GPU idle history across restarts
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 ---
@@ -804,5 +804,5 @@ git add public/app.js public/style.css README.md config.example.json
 git commit -m "feat: show per-GPU last idle and 30-day idle total
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```

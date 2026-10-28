@@ -10,11 +10,11 @@ test('/avatars serves only mapped users', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'avatars-'));
   fs.writeFileSync(path.join(dir, 'me.png'), 'PNG');
   const app = express();
-  app.get('/avatars/:user', avatarHandler({ 'f.manzoni': 'me.png', ghost: 'missing.png' }, dir));
+  app.get('/avatars/:user', avatarHandler({ 'jsilva': 'me.png', ghost: 'missing.png' }, dir));
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}/avatars/`;
   try {
-    const ok = await fetch(`${base}f.manzoni`);
+    const ok = await fetch(`${base}jsilva`);
     assert.strictEqual(ok.status, 200);
     assert.strictEqual(await ok.text(), 'PNG');
     assert.strictEqual((await fetch(`${base}nobody`)).status, 404);

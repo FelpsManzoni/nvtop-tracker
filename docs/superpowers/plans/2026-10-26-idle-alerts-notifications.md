@@ -45,11 +45,11 @@
   - Messages end with these trailer lines, copied verbatim:
     ```
     Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-    Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD
+    Claude-Session: <session url>
     ```
-  - Author and committer must be `felipemanzoni3@gmail.com`; check with `git log -1 --format='%ae %ce'`.
+  - Author and committer must be `<author email>`; check with `git log -1 --format='%ae %ce'`.
   - Never push or merge.
-- **Environment note:** while the user's `~/.gitconfig` has an empty `gpg.format`, run git with `GIT_CONFIG_GLOBAL=/home/fmanzoni-lx/.cache/gitconfig-claude-fixed`.
+- **Environment note:** if the global git config breaks commit signing, run git with `GIT_CONFIG_GLOBAL` pointing to a working config.
 
 ## Review Focus
 
@@ -91,8 +91,8 @@ test('fmtHms and fmtDuration', () => {
 });
 test('idleCard has the approved structure, rows longest first', () => {
   const card = idleCard([
-    { server: 'H200 Server 1', label: 'GPU 3', idleMs: 12 * 3600_000 },
-    { server: 'H200 Server 2', label: 'GPU 0', idleMs: 36 * 3600_000 },
+    { server: 'GPU Server 1', label: 'GPU 3', idleMs: 12 * 3600_000 },
+    { server: 'GPU Server 2', label: 'GPU 0', idleMs: 36 * 3600_000 },
   ]);
   assert.equal(card.type, 'AdaptiveCard'); assert.equal(card.version, '1.4');
   assert.equal(card.body[0].text, '⚠️ GPUs ociosas há mais de 12h');
@@ -100,7 +100,7 @@ test('idleCard has the approved structure, rows longest first', () => {
   const rows = card.body.filter((b) => b.type === 'ColumnSet');
   assert.deepEqual(rows[0].columns.map((c) => c.items[0].text), ['Servidor', 'GPU', 'Ociosa há']);
   assert.deepEqual(rows.slice(1).map((r) => r.columns.map((c) => c.items[0].text)),
-    [['H200 Server 2', 'GPU 0', '36:00:00'], ['H200 Server 1', 'GPU 3', '12:00:00']]);
+    [['GPU Server 2', 'GPU 0', '36:00:00'], ['GPU Server 1', 'GPU 3', '12:00:00']]);
   assert.equal(rows[1].separator, true);
   assert.equal(rows[1].columns[2].items[0].fontType, 'Monospace');
 });
@@ -108,7 +108,7 @@ test('a 40-row idle card stays under 28 KB', () => {
   const rows = Array.from({ length: 40 }, (_, i) => ({ server: `Server ${i}`, label: `GPU ${i} - 1`, idleMs: i * 3600_000 }));
   assert.ok(Buffer.byteLength(JSON.stringify(envelope(idleCard(rows)))) < 28 * 1024);
 });
-test('downCard and recoveryCard wording', () => { /* title '🔴 H200 Server 2 inacessível' color Attention; body text contains 'Sem resposta desde', '(há 45min)', 'Último erro: ssh timeout'; recovery title '✅ H200 Server 2 voltou' color Good and text contains 'Ficou inacessível por 2h13min' */ });
+test('downCard and recoveryCard wording', () => { /* title '🔴 GPU Server 2 inacessível' color Attention; body text contains 'Sem resposta desde', '(há 45min)', 'Último erro: ssh timeout'; recovery title '✅ GPU Server 2 voltou' color Good and text contains 'Ficou inacessível por 2h13min' */ });
 test('postCard sends the envelope and resolves on 202', async () => { /* fake fetchFn records (url, init); assert init.method 'POST', header Content-Type application/json, JSON.parse(init.body).attachments[0].contentType === 'application/vnd.microsoft.card.adaptive' */ });
 test('postCard throws on non-2xx without leaking the URL', async () => { /* fetchFn → { ok:false, status:400 }; await assert.rejects(..., (e) => /HTTP 400/.test(e.message) && !e.message.includes('secret')) with url 'https://x/secret' */ });
 ```
@@ -129,7 +129,7 @@ Expected: all pass, with pristine output.
 ```bash
 git add src/teams.js src/config.js test/teams.test.js test/collector.test.js
 git commit -m "feat: build Teams Adaptive Cards and post them to a Workflows webhook" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 ---
@@ -199,7 +199,7 @@ Expected: all pass, with pristine output.
 ```bash
 git add src/notifier.js test/notifier.test.js
 git commit -m "feat: decide idle and unreachable Teams notifications" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 ---
@@ -255,7 +255,7 @@ Expected: all pass, with pristine output. Tests must not write into the repo's `
 ```bash
 git add src/collector.js README.md config.example.json test/collector.test.js
 git commit -m "feat: send Teams notifications for idle GPUs and unreachable servers" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 ---
@@ -286,7 +286,7 @@ Expected: no syntax error; all tests pass.
 ```bash
 git add public/app.js public/style.css
 git commit -m "feat: tint GPU cards after 4h and 12h of idle time" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01DW6DKVihcwiQtNwhKmuinD"
+Claude-Session: <session url>"
 ```
 
 - [ ] **Step 4: Verify in the browser (controller)**
