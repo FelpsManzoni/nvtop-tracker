@@ -13,19 +13,22 @@ const {
   parseMigXml,
   parseDcgmDiscovery,
   parseDcgmDmon,
+  parseDcgmDmonFields,
+  parseMeminfo,
+  parseDockerContainersJson,
 } = require('../src/parsers');
 
 test('parseGpuCsv parses nvidia-smi csv output including GPU name', () => {
-  const output = '0, NVIDIA H200 NVL, 85, 7500, 8000, 65\n1, NVIDIA H200 NVL, 12, 400, 8000, 40\n';
+  const output = '0, NVIDIA GPU, 85, 7500, 8000, 65\n1, NVIDIA GPU, 12, 400, 8000, 40\n';
   const gpus = parseGpuCsv(output);
   assert.deepEqual(gpus, [
-    { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA H200 NVL', utilization: 85, memory: { used: 7500, total: 8000 }, temperature: 65 },
-    { id: 1, key: '1', label: 'GPU 1', name: 'NVIDIA H200 NVL', utilization: 12, memory: { used: 400, total: 8000 }, temperature: 40 },
+    { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA GPU', utilization: 85, memory: { used: 7500, total: 8000 }, temperature: 65 },
+    { id: 1, key: '1', label: 'GPU 1', name: 'NVIDIA GPU', utilization: 12, memory: { used: 400, total: 8000 }, temperature: 40 },
   ]);
 });
 
 test('parseGpuCsv skips malformed lines instead of throwing', () => {
-  const output = '0, NVIDIA H200 NVL, 85, 7500, 8000, 65\ngarbage line\n1, NVIDIA H200 NVL, 12, 400, 8000, 40\n';
+  const output = '0, NVIDIA GPU, 85, 7500, 8000, 65\ngarbage line\n1, NVIDIA GPU, 12, 400, 8000, 40\n';
   const gpus = parseGpuCsv(output);
   assert.equal(gpus.length, 2);
   assert.equal(gpus[1].id, 1);
@@ -68,10 +71,10 @@ test('parseDf excludes the root filesystem and everything under /boot regardless
 });
 
 test('parseDockerPs parses running containers only (docker ps, not -a)', () => {
-  const output = ['vla-manager-beat-1\tUp 7 days', 'mlflow-server\tUp 6 days (healthy)', ''].join('\n');
+  const output = ['app-worker-1\tUp 7 days', 'tracking-server\tUp 6 days (healthy)', ''].join('\n');
   assert.deepEqual(parseDockerPs(output), [
-    { name: 'vla-manager-beat-1', status: 'Up 7 days' },
-    { name: 'mlflow-server', status: 'Up 6 days (healthy)' },
+    { name: 'app-worker-1', status: 'Up 7 days' },
+    { name: 'tracking-server', status: 'Up 6 days (healthy)' },
   ]);
 });
 
@@ -83,12 +86,12 @@ test('parseDockerImages skips dangling <none>:<none> images', () => {
   const output = [
     'kitti-scs:h200\t13 days ago',
     '<none>:<none>\t2 weeks ago',
-    'vla-train:latest\t1 day ago',
+    'trainer:latest\t1 day ago',
     '',
   ].join('\n');
   assert.deepEqual(parseDockerImages(output), [
     { repoTag: 'kitti-scs:h200', created: '13 days ago' },
-    { repoTag: 'vla-train:latest', created: '1 day ago' },
+    { repoTag: 'trainer:latest', created: '1 day ago' },
   ]);
 });
 
@@ -127,8 +130,8 @@ test('parsePsOutput returns an empty map for empty output', () => {
 });
 
 test('parseDuTopFolder picks the largest immediate subfolder, excluding the mount total line', () => {
-  const output = ['16\t/data/x/lost+found', '349273060\t/data/x/m.raposo', '349273600\t/data/x', ''].join('\n');
-  assert.deepEqual(parseDuTopFolder(output, '/data/x'), { path: '/data/x/m.raposo', sizeKb: 349273060 });
+  const output = ['16\t/data/x/lost+found', '349273060\t/data/x/alice', '349273600\t/data/x', ''].join('\n');
+  assert.deepEqual(parseDuTopFolder(output, '/data/x'), { path: '/data/x/alice', sizeKb: 349273060 });
 });
 
 test('parseDuTopFolder ignores unparseable lines (e.g. "du: cannot read directory" permission warnings)', () => {
@@ -148,17 +151,20 @@ test('parseDuTopFolder returns null when there are no subfolders (or the scan pr
 });
 
 test('parsePsOutput keeps usernames longer than 8 chars from `ps -o user:64=`', () => {
-  const byPid = parsePsOutput('42 f.manzoni                                                         python train.py\n');
-  assert.deepEqual(byPid.get(42), { user: 'f.manzoni', args: 'python train.py' });
+  const byPid = parsePsOutput('42 j.silva.santos                                                      python train.py\n');
+  assert.deepEqual(byPid.get(42), { user: 'j.silva.santos', args: 'python train.py' });
 });
 
 test('parseGpuCsv keeps a GPU whose utilization is [N/A] and adds key/label', () => {
-  const gpus = parseGpuCsv('0, NVIDIA H200 NVL, 92, 71701, 143771, 47\n7, NVIDIA H200 NVL, [N/A], 10301, 143771, 36\n');
+  const gpus = parseGpuCsv('0, NVIDIA GPU, 92, 71701, 143771, 47\n7, NVIDIA GPU, [N/A], 10301, 143771, 36\n');
   assert.deepEqual(gpus.map((g) => [g.key, g.label, g.utilization]), [['0', 'GPU 0', 92], ['7', 'GPU 7', null]]);
   assert.deepEqual(gpus[1].memory, { used: 10301, total: 143771 });
 });
-test('parseGpuCsv still drops a line whose memory or temperature is not numeric', () => {
-  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, 5, [N/A], 143771, 36\n').length, 0);
+test('parseGpuCsv keeps a GPU whose memory is [N/A] (Jetson) with unknown memory', () => {
+  const [jetson] = parseGpuCsv('0, NVIDIA Jetson, 0, [N/A], [N/A], 45\n');
+  assert.deepEqual(jetson, {
+    id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA Jetson', utilization: 0, memory: { used: null, total: null }, temperature: 45,
+  });
 });
 test('parseGpuProcesses rows carry gpuKey and gpuLabel', () => {
   const rows = parseGpuProcesses('GPU-aaaa, 1016695, /data/venv/bin/python, 50956 MiB\n', '0, GPU-aaaa\n');
@@ -195,13 +201,15 @@ test('parseDcgmDmon returns an empty map for the host-engine error text', () => 
   assert.equal(parseDcgmDmon('Error: Unable to connect to host engine. Host engine connection invalid/disconnected.').size, 0);
 });
 
-test('parseGpuCsv drops a line with an empty required field', () => {
-  assert.deepEqual(parseGpuCsv('7, NVIDIA H200 NVL, 5, , 143771, 36\n'), []);
-  assert.deepEqual(parseGpuCsv('7, NVIDIA H200 NVL, 5, 10, 143771, \n'), []);
+test('parseGpuCsv reads an empty reading as unknown, never as 0, and drops lines without index or name', () => {
+  assert.deepEqual(parseGpuCsv('7, NVIDIA GPU, 5, , 143771, 36\n')[0].memory, { used: null, total: 143771 });
+  assert.equal(parseGpuCsv('7, NVIDIA GPU, 5, 10, 143771, \n')[0].temperature, null);
+  assert.deepEqual(parseGpuCsv(', NVIDIA GPU, 5, 10, 143771, 36\n'), []);
+  assert.deepEqual(parseGpuCsv('7, , 5, 10, 143771, 36\n'), []);
 });
 test('parseGpuCsv treats an empty or out-of-range utilization as unknown', () => {
-  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, , 10, 143771, 36\n')[0].utilization, null);
-  assert.equal(parseGpuCsv('7, NVIDIA H200 NVL, 250, 10, 143771, 36\n')[0].utilization, null);
+  assert.equal(parseGpuCsv('7, NVIDIA GPU, , 10, 143771, 36\n')[0].utilization, null);
+  assert.equal(parseGpuCsv('7, NVIDIA GPU, 250, 10, 143771, 36\n')[0].utilization, null);
 });
 
 test('parseDcgmDmon tolerates indented rows and CRLF line endings', () => {
@@ -213,4 +221,33 @@ test('parseDcgmDiscovery tolerates extra spaces and CRLF', () => {
   const raw = fs.readFileSync(path.join(__dirname, 'fixtures/dcgm-discovery.txt'), 'utf8');
   const out = raw.replace(/I (\d+\/)/g, 'I  $1').replace(/\n/g, '\r\n');
   assert.deepEqual([...parseDcgmDiscovery(out)], [['7/3', 49], ['7/5', 50], ['7/6', 51]]);
+});
+
+test('parseDcgmDmonFields keeps the last numeric value of every field per entity', () => {
+  const out = [
+    '#Entity         GRACT        FBTTL             FBUSD',
+    'ID',
+    'GPU-I 49        N/A          35072             N/A',
+    'GPU-I 50        N/A          N/A               N/A',
+    'GPU-I 49        0.845        35072             831',
+    'GPU-I 50        0.500        N/A               N/A',
+  ].join('\n');
+  assert.deepEqual([...parseDcgmDmonFields(out)], [[49, [0.845, 35072, 831]], [50, [0.5, null, null]]]);
+});
+test('parseDcgmDmon still reads the first field from multi-field output', () => {
+  assert.deepEqual([...parseDcgmDmon('GPU-I 49   0.845   35072   831\n')], [[49, 0.845]]);
+});
+
+test('parseMeminfo turns MemTotal/MemAvailable into used/total MiB', () => {
+  assert.deepEqual(parseMeminfo('MemTotal:       65536000 kB\nMemFree:  1 kB\nMemAvailable:   49152000 kB\n'), { used: 16000, total: 64000 });
+  assert.equal(parseMeminfo('MemTotal: 10 kB\n'), null);
+});
+
+test('parseDockerContainersJson reads running containers from the Engine API', () => {
+  const body = JSON.stringify([
+    { Names: ['/tracking-server'], State: 'running', Status: 'Up 2 hours (healthy)', Created: 1761000000 },
+    { Names: ['/old'], State: 'exited', Status: 'Exited (0) 2 days ago', Created: 1760000000 },
+  ]);
+  assert.deepEqual(parseDockerContainersJson(body), [{ name: 'tracking-server', status: 'Up 2 hours (healthy)', created: 1761000000 }]);
+  assert.deepEqual(parseDockerContainersJson('{}'), []);
 });
