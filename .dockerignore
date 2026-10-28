@@ -1,0 +1,12 @@
+.git
+node_modules
+config.json
+exporter.config.json
+data
+avatars
+parity-report
+deploy
+docs
+scripts
+test
+*.md

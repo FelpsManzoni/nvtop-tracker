@@ -1,0 +1,83 @@
+# The hub: the team's Prometheus, this host's exporter and the dashboard. Separate from any other
+# monitoring stack on the host; nothing here touches it. Run ./init.sh first: it writes the
+# host-specific files (.env, web.yml, prometheus.yml, exporter.config.json, compose.override.yaml).
+name: nvtop
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.5
+    # Host network: it scrapes the exporter on 127.0.0.1 and takes remote hosts' writes on :19090.
+    network_mode: host
+    user: "${NVTOP_UID:?run ./init.sh}:${NVTOP_GID:?run ./init.sh}"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.config.file=/etc/prometheus/web.yml # basic auth
+      - --web.listen-address=0.0.0.0:19090
+      - --web.enable-remote-write-receiver
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./web.yml:/etc/prometheus/web.yml:ro
+      - ./prometheus-data:/prometheus
+    restart: unless-stopped
+
+  exporter:
+    build: { context: ../.., target: exporter }
+    image: nvtop-exporter:local
+    # Host network so dcgmi reaches the host engine on 127.0.0.1:5555; it listens on 127.0.0.1 only.
+    network_mode: host
+    # Host PID namespace so nvidia-smi and ps see the processes using the GPUs.
+    pid: host
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    volumes: # data disks and the host's DCGM client: compose.override.yaml
+      - ./exporter.config.json:/config/exporter.config.json:ro
+      - /etc/passwd:/etc/passwd:ro # process owners
+      - docker-proxy:/run/docker-proxy
+    depends_on: [docker-proxy]
+    restart: unless-stopped
+
+  # Lets the exporter list running containers and nothing else (no inspect, logs, images or
+  # writes), over a Unix socket in a volume only these two containers mount.
+  docker-proxy:
+    image: wollomatic/socket-proxy:1.13.2
+    network_mode: none
+    user: "0:0" # owns the Docker socket and the volume; no capabilities
+    command:
+      - -proxysocketendpoint=/run/docker-proxy/proxy.sock
+      - -proxysocketendpointfilemode=0666
+      - -allowGET=/(v[0-9.]+/)?containers/json
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker-proxy:/run/docker-proxy
+    restart: unless-stopped
+
+  dashboard:
+    build: { context: ../.., target: dashboard }
+    image: nvtop-dashboard:local
+    network_mode: host # serves config.json's "port" and reads Prometheus on 127.0.0.1
+    user: "${NVTOP_UID:?run ./init.sh}:${NVTOP_GID:?run ./init.sh}"
+    environment:
+      PROMETHEUS_USERNAME: ${PROMETHEUS_USERNAME:?run ./init.sh}
+      PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?run ./init.sh}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    volumes:
+      - ./config.json:/config/config.json:ro
+      - ./data:/app/data # idle history and notifier state
+      - ./avatars:/app/avatars:ro
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+volumes:
+  docker-proxy:

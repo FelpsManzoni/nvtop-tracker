@@ -1,6 +1,19 @@
 node_modules/
-config.json
-exporter.config.json
-avatars/
-data/
-parity-report/
+/config.json
+/exporter.config.json
+/avatars/
+/data/
+/parity-report/
+# Written per host by deploy/*/init.sh: deployment details and secrets never enter the repo
+deploy/*/.env
+deploy/*/config.json
+deploy/*/web.yml
+deploy/*/prometheus.yml
+deploy/*/agent.yml
+deploy/*/exporter.config.json
+deploy/*/compose.override.yaml
+deploy/*/prometheus-password
+deploy/*/avatars/
+deploy/*/data/
+deploy/*/prometheus-data/
+deploy/*/agent-data/

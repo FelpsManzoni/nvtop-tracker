@@ -1,0 +1,59 @@
+# A remote host: its exporter and a Prometheus agent that remote-writes to the hub's Prometheus
+# (for hosts the hub cannot reach). Run ./init.sh first: it writes the host-specific files
+# (.env, prometheus-password, agent.yml, exporter.config.json, compose.override.yaml).
+name: nvtop
+
+services:
+  agent:
+    image: prom/prometheus:v3.13.5
+    network_mode: host # scrapes the exporter on 127.0.0.1; serves nothing off this host
+    user: "${NVTOP_UID:?run ./init.sh}:${NVTOP_GID:?run ./init.sh}"
+    command:
+      - --agent
+      - --config.file=/etc/prometheus/agent.yml
+      - --storage.agent.path=/agent
+      - --web.listen-address=127.0.0.1:19090
+    volumes:
+      - ./agent.yml:/etc/prometheus/agent.yml:ro
+      - ./prometheus-password:/etc/prometheus/password:ro
+      - ./agent-data:/agent
+    restart: unless-stopped
+
+  exporter:
+    build: { context: ../.., target: exporter }
+    image: nvtop-exporter:local
+    network_mode: host # listens on 127.0.0.1 only
+    pid: host # nvidia-smi and ps see the processes using the GPU
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    volumes: # data disks and the host's DCGM client, if any: compose.override.yaml
+      - ./exporter.config.json:/config/exporter.config.json:ro
+      - /etc/passwd:/etc/passwd:ro # process owners
+      - docker-proxy:/run/docker-proxy
+    depends_on: [docker-proxy]
+    restart: unless-stopped
+
+  # Lets the exporter list running containers and nothing else, over a Unix socket.
+  docker-proxy:
+    image: wollomatic/socket-proxy:1.13.2
+    network_mode: none
+    user: "0:0" # owns the Docker socket and the volume; no capabilities
+    command:
+      - -proxysocketendpoint=/run/docker-proxy/proxy.sock
+      - -proxysocketendpointfilemode=0666
+      - -allowGET=/(v[0-9.]+/)?containers/json
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker-proxy:/run/docker-proxy
+    restart: unless-stopped
+
+volumes:
+  docker-proxy:
