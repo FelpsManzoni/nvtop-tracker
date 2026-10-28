@@ -70,3 +70,9 @@ test('RollingBuffer.getTrends ignores null utilizations; all-null gives null tre
   nulls.push([{ key: '7-1', utilization: null, memory: { used: 0, total: 0 } }], now);
   assert.deepEqual(nulls.getTrends(now), { gpuAvgUtilization1m: null, gpuAvgUtilization5m: null, gpuMaxUtilization5m: null });
 });
+
+test('RollingBuffer.getHistoryByGpu gives no memory point when memory is unknown', () => {
+  const buf = new RollingBuffer({ historyMinutes: 5 });
+  buf.push([{ key: '0', utilization: 0, memory: { used: null, total: null } }], 1_000_000);
+  assert.deepEqual(buf.getHistoryByGpu()['0'], [{ timestamp: 1_000_000, utilization: 0, memoryPercent: null }]);
+});

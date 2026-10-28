@@ -20,8 +20,8 @@ test('fmtWhen formats local time as dd/mm HH:MM', () => {
 
 test('idleCard has the approved structure, rows longest first', () => {
   const card = idleCard([
-    { server: 'H200 Server 1', label: 'GPU 3', idleMs: 12 * 3600_000 },
-    { server: 'H200 Server 2', label: 'GPU 0', idleMs: 36 * 3600_000 },
+    { server: 'GPU Server 1', label: 'GPU 3', idleMs: 12 * 3600_000 },
+    { server: 'GPU Server 2', label: 'GPU 0', idleMs: 36 * 3600_000 },
   ]);
   assert.equal(card.type, 'AdaptiveCard'); assert.equal(card.version, '1.4');
   assert.equal(card.body[0].text, '⚠️ GPUs ociosas há mais de 12h');
@@ -29,7 +29,7 @@ test('idleCard has the approved structure, rows longest first', () => {
   const rows = card.body.filter((b) => b.type === 'ColumnSet');
   assert.deepEqual(rows[0].columns.map((c) => c.items[0].text), ['Servidor', 'GPU', 'Ociosa há']);
   assert.deepEqual(rows.slice(1).map((r) => r.columns.map((c) => c.items[0].text)),
-    [['H200 Server 2', 'GPU 0', '36:00:00'], ['H200 Server 1', 'GPU 3', '12:00:00']]);
+    [['GPU Server 2', 'GPU 0', '36:00:00'], ['GPU Server 1', 'GPU 3', '12:00:00']]);
   assert.equal(rows[1].separator, true);
   assert.equal(rows[1].columns[2].items[0].fontType, 'Monospace');
 });
@@ -41,8 +41,8 @@ test('a 40-row idle card stays under 28 KB', () => {
 
 test('downCard and recoveryCard wording', () => {
   const now = new Date(2026, 9, 23, 12, 0).getTime();
-  const down = downCard({ server: 'H200 Server 2', downSince: now - 45 * 60_000, error: 'ssh timeout', now });
-  assert.equal(down.body[0].text, '🔴 H200 Server 2 inacessível');
+  const down = downCard({ server: 'GPU Server 2', downSince: now - 45 * 60_000, error: 'ssh timeout', now });
+  assert.equal(down.body[0].text, '🔴 GPU Server 2 inacessível');
   assert.equal(down.body[0].color, 'Attention');
   const dt = texts(down).join('\n');
   assert.match(dt, /Sem resposta desde 23\/10 11:15/);
@@ -50,8 +50,8 @@ test('downCard and recoveryCard wording', () => {
   assert.match(dt, /Último erro: ssh timeout/);
 
   const downSince = new Date(2026, 9, 23, 9, 0).getTime();
-  const rec = recoveryCard({ server: 'H200 Server 2', downSince, recoveredAt: downSince + (2 * 60 + 13) * 60_000 });
-  assert.equal(rec.body[0].text, '✅ H200 Server 2 voltou');
+  const rec = recoveryCard({ server: 'GPU Server 2', downSince, recoveredAt: downSince + (2 * 60 + 13) * 60_000 });
+  assert.equal(rec.body[0].text, '✅ GPU Server 2 voltou');
   assert.equal(rec.body[0].color, 'Good');
   assert.match(texts(rec).join('\n'), /Ficou inacessível por 2h13min \(desde 23\/10 09:00\)/);
 });

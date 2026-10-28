@@ -1,0 +1,11 @@
+{
+  "listenHost": "127.0.0.1",
+  "listenPort": 19101,
+  "gpuPollIntervalMs": 2000,
+  "diskPollIntervalMs": 300000,
+  "diskMountPrefixes": ["/data"],
+  "diskTopFolderMountPrefixes": ["/data"],
+  "duTimeoutSeconds": 25,
+  "dockerHost": "unix:///var/run/docker.sock",
+  "unifiedMemoryFallback": false
+}

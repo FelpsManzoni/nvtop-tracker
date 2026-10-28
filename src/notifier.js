@@ -57,8 +57,22 @@ class Notifier {
       s.recoveryPending = { downSince: s.downSince, recoveredAt: now };
     }
     s.downSince = null; s.lastError = null; s.noticeAt = null;
+    if (entries !== undefined) this.setEntries(server, entries);
+  }
+
+  // Latest GPU entries of a server, for idle evaluation. Reachability is observe()'s job: the two
+  // come from different sources (GPU data from the exporter, reachability from an SSH probe).
+  setEntries(server, entries) {
+    this._s(server);
     this.entries[server] = entries || [];
     this.observed.add(server);
+  }
+
+  // The data source failed, so nothing is known about this server right now: its GPUs leave the
+  // idle evaluation (no alert from stale data) without counting as an outage, and their notified
+  // milestones are kept.
+  unknown(server) {
+    this.entries[server] = [];
   }
 
   async _try(card, onSuccess) {

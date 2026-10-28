@@ -33,19 +33,23 @@ function parseGpuCsv(output) {
     if (parts.length !== 6) continue;
     const [idStr, name, utilStr, memUsedStr, memTotalStr, tempStr] = parts;
     const num = (str) => (str === '' ? NaN : Number(str)); // Number('') is 0, which would fake telemetry
-    const [id, memUsed, memTotal, temperature] = [idStr, memUsedStr, memTotalStr, tempStr].map(num);
-    // Utilization may be "[N/A]" (e.g. MIG-enabled GPUs) or otherwise unusable: keep the GPU with null.
+    const known = (str) => {
+      const v = num(str);
+      return Number.isFinite(v) ? v : null;
+    };
+    const id = num(idStr);
+    if (!name || Number.isNaN(id)) continue;
+    // Any reading may be "[N/A]" (utilization on MIG GPUs, memory on Jetson's unified memory):
+    // keep the GPU with null for what is unknown.
     const u = num(utilStr);
-    const utilization = Number.isFinite(u) && u >= 0 && u <= 100 ? u : null;
-    if (!name || [id, memUsed, memTotal, temperature].some(Number.isNaN)) continue;
     gpus.push({
       id,
       key: String(id),
       label: `GPU ${id}`,
       name,
-      utilization,
-      memory: { used: memUsed, total: memTotal },
-      temperature,
+      utilization: Number.isFinite(u) && u >= 0 && u <= 100 ? u : null,
+      memory: { used: known(memUsedStr), total: known(memTotalStr) },
+      temperature: known(tempStr),
     });
   }
   return gpus;
@@ -208,20 +212,53 @@ function parseDcgmDiscovery(output) {
   return map;
 }
 
-// Parses `dcgmi dmon` output ("GPU-I <id> <value>" rows): entity id -> last numeric value.
-function parseDcgmDmon(output) {
+// Parses `dcgmi dmon -e <f1>,<f2>,...` output ("GPU-I <id> <v1> <v2> ..." rows): entity id ->
+// one value per field, each the last numeric one seen (the first sample is often N/A warm-up),
+// null when the field never had a number.
+function parseDcgmDmonFields(output) {
   const map = new Map();
-  for (const m of output.matchAll(/^\s*GPU-I\s+(\d+)\s+(\S+)/gm)) {
-    const value = Number(m[2]);
-    if (Number.isFinite(value)) map.set(Number(m[1]), value);
+  for (const m of output.matchAll(/^\s*GPU-I\s+(\d+)\s+(.*)$/gm)) {
+    const id = Number(m[1]);
+    const prev = map.get(id) || [];
+    const row = m[2].trim().split(/\s+/).map(Number);
+    map.set(id, row.map((v, i) => (Number.isFinite(v) ? v : (prev[i] ?? null))));
   }
   return map;
+}
+
+// Entity id -> last numeric value of the first field (the activity, field 1001).
+function parseDcgmDmon(output) {
+  const map = new Map();
+  for (const [id, [value]] of parseDcgmDmonFields(output)) if (value !== null) map.set(id, value);
+  return map;
+}
+
+// Parses /proc/meminfo into MiB. Jetson GPUs share this memory, so it stands in for the GPU's.
+function parseMeminfo(text) {
+  const kb = (name) => Number((text.match(new RegExp(`^${name}:\\s+(\\d+)\\s+kB`, 'm')) || [])[1]);
+  const total = kb('MemTotal');
+  const available = kb('MemAvailable');
+  if (!Number.isFinite(total) || !Number.isFinite(available)) return null;
+  return { used: Math.round((total - available) / 1024), total: Math.round(total / 1024) };
+}
+
+// Parses the Docker Engine API's GET /containers/json body (running containers by default)
+// into the same rows `docker ps --format "{{.Names}}\t{{.Status}}"` gave, plus the creation time.
+function parseDockerContainersJson(body) {
+  const rows = JSON.parse(body);
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((c) => c && c.State === 'running' && Array.isArray(c.Names) && c.Names.length)
+    .map((c) => ({ name: String(c.Names[0]).replace(/^\//, ''), status: String(c.Status || ''), created: Number(c.Created) || 0 }));
 }
 
 module.exports = {
   parseMigXml,
   parseDcgmDiscovery,
   parseDcgmDmon,
+  parseDcgmDmonFields,
+  parseMeminfo,
+  parseDockerContainersJson,
   parseGpuCsv,
   parseDf,
   parseDockerPs,

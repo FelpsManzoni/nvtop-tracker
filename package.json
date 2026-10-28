@@ -1,18 +1,23 @@
 {
   "name": "nvtop-tracker",
   "version": "1.0.0",
-  "description": "Multi-server GPU & disk monitoring dashboard",
+  "description": "Multi-server GPU & disk monitoring dashboard fed by Prometheus",
   "license": "MIT",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "exporter": "node src/exporter.js",
+    "test": "node --test",
+    "parity": "node scripts/parity/parity.js"
   },
   "dependencies": {
     "express": "^4.19.2"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
   }
 }

@@ -5,7 +5,7 @@
 
 ## Why
 
-GPU 7 on "H200 Server 1 (sd-mnshpc01)" was switched to MIG mode (three `2g.35gb`
+GPU 7 on "GPU Server 1" was switched to MIG mode (three `2g.35gb`
 partitions). Since then it has vanished from the dashboard: in MIG mode `nvidia-smi`
 reports the GPU's utilization as `[N/A]`, and `parseGpuCsv` drops any line with a
 non-numeric field, so the whole GPU disappears from the cards, the GPU list, the idle
@@ -50,8 +50,8 @@ put into MIG mode.
 
 ## Facts gathered on Server 1 (read-only, 2026-10-17 and 2026-10-19)
 
-- Driver 570.172.08. `nvidia-smi --query-gpu=...` prints GPU 7 as
-  `7, NVIDIA H200 NVL, [N/A], 10301, 143771, 36` (utilization `[N/A]`; memory and
+- `nvidia-smi --query-gpu=...` prints GPU 7 as
+  `7, NVIDIA GPU, [N/A], 10301, 143771, 36` (utilization `[N/A]`; memory and
   temperature are numbers). `mig.mode.current` is `Enabled` for GPU 7 only.
 - `nvidia-smi -q -x -i 7` (XML) lists `<mig_device>` entries with `<index>` (0..2),
   `<gpu_instance_id>` (3, 5, 6), `<compute_instance_id>` (0) and `<fb_memory_usage>`
@@ -64,7 +64,7 @@ put into MIG mode.
 - `mig -lgi` / `mig -lci` fail with "Insufficient Permissions" for the SSH user — do not
   use them.
 - DCGM: `nv-hostengine` runs as `nvidia-dcgm.service` (it was inactive on 2026-10-17 and
-  active on 2026-10-19 — availability must be treated as variable). `dcgmi` 4.5.0.
+  active on 2026-10-19 — availability must be treated as variable).
   `dcgmi discovery -c` prints the hierarchy, e.g.
   `| -> I 7/3          | GPU Instance (EntityID: 49) |`, mapping GPU 7 / GPU-instance 3
   to DCGM entity 49 (5 → 50, 6 → 51).

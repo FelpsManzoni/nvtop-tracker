@@ -6,8 +6,8 @@ const { buildGpuEntries, buildGpuProcesses } = require('../src/mig');
 const { parseMigXml } = require('../src/parsers');
 
 const fx = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8');
-const gpu0 = { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA H200 NVL', utilization: 92, memory: { used: 1685, total: 143771 }, temperature: 27 };
-const gpu7 = { id: 7, key: '7', label: 'GPU 7', name: 'NVIDIA H200 NVL', utilization: null, memory: { used: 33435, total: 143771 }, temperature: 47 };
+const gpu0 = { id: 0, key: '0', label: 'GPU 0', name: 'NVIDIA GPU', utilization: 92, memory: { used: 1685, total: 143771 }, temperature: 27 };
+const gpu7 = { id: 7, key: '7', label: 'GPU 7', name: 'NVIDIA GPU', utilization: null, memory: { used: 33435, total: 143771 }, temperature: 47 };
 const mig7 = parseMigXml(fx('mig-gpu.xml'));
 const fullUtil = (at) => new Map([['7/3', { value: 0.845, at }], ['7/5', { value: 0.871, at }], ['7/6', { value: 0.931, at }]]);
 
@@ -51,4 +51,26 @@ test('buildGpuProcesses relabels MIG processes per partition and drops unmatched
   assert.deepEqual(rows.map((r) => [r.gpuKey, r.gpuLabel, r.pid]), [
     ['0', 'GPU 0', 1], ['7-1', 'GPU 7 - 1', 3978767], ['7-2', 'GPU 7 - 2', 120122], ['7-3', 'GPU 7 - 3', 31391],
   ]);
+});
+
+// Layout read from DCGM (the XML hid the partitions): no memory or processes of its own.
+const dcgm7 = {
+  migEnabled: true,
+  source: 'dcgm',
+  devices: [3, 5].map((gpuInstanceId, migIndex) => ({ migIndex, gpuInstanceId, memory: { used: null, total: null } })),
+  processes: [],
+};
+
+test('a DCGM-read layout takes partition memory from the DCGM reading while it is fresh', () => {
+  const util = new Map([['7/3', { value: 0.5, at: 1000, memory: { used: 831, total: 33280 } }], ['7/5', { value: null, at: 1000 }]]);
+  assert.deepEqual(buildGpuEntries([gpu7], new Map([[7, dcgm7]]), util, 2000, 6000).map((x) => [x.key, x.utilization, x.memory]), [
+    ['7-1', 50, { used: 831, total: 33280 }],
+    ['7-2', null, { used: null, total: null }],
+  ]);
+  assert.deepEqual(buildGpuEntries([gpu7], new Map([[7, dcgm7]]), util, 8000, 6000).map((x) => x.memory.used), [null, null]);
+});
+
+test('buildGpuProcesses keeps whole-GPU rows when the layout came from DCGM', () => {
+  const base = [{ gpuId: 7, gpuKey: '7', gpuLabel: 'GPU 7', pid: 555 }];
+  assert.deepEqual(buildGpuProcesses(base, new Map([[7, dcgm7]])).map((r) => [r.gpuKey, r.pid]), [['7', 555]]);
 });
