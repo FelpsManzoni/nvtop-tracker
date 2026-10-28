@@ -210,7 +210,7 @@ OLD_URL=http://old-dashboard-host:3000 NEW_URL=http://gpu-server-1:13000 npm run
 
 Defaults to 30 minutes with a round every 30 s (`PARITY_MINUTES`, `PARITY_INTERVAL_S`;
 `PARITY_ROUNDS=1` for a quick check). A mismatch only counts when it shows in two consecutive
-rounds (containers and disks, which both boards poll every 5 minutes: when it outlasts a poll); known differences (a unified-memory GPU only on the new board, the biggest folder) are reported
+rounds (containers and disks, which both boards poll every 5 minutes: when it outlasts a poll); known differences (a unified-memory GPU only on the new board, the biggest folder, the live idle timer of a GPU with short bursts) are reported
 but don't fail the run. Set `PARITY_SKIP_IDLE_TIME=1` until both boards share the same idle
 history. The report (`report.html`, `report.json`, screenshots) goes to `parity-report/`.
 

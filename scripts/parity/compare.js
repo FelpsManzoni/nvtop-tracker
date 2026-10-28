@@ -80,7 +80,10 @@ function compareServer(server, old, neu, { skipIdleTime = false } = {}) {
     if (!ca || !cb) add('GPU card', key, !!ca, !!cb, 'rendered on both');
     else if (ca.pill !== cb.pill) add('status pill', key, ca.pill, cb.pill, 'same state');
     else if (ca.pill === 'idle' && !skipIdleTime && Math.abs(hms(ca.idleText) - hms(cb.idleText)) > TOLERANCE.idleTimeMs) {
-      add('idle time', key, ca.idleText, cb.idleText, `within ±${TOLERANCE.idleTimeMs / 1000} s`);
+      // Each board resets the timer on any reading >= 1 %, sampling at its own instants: a burst
+      // shorter than a poll caught by only one board resets only its timer. Informational; the
+      // pill state and the idle history above are what must agree.
+      add('idle time', key, ca.idleText, cb.idleText, `within ±${TOLERANCE.idleTimeMs / 1000} s (informational)`, true);
     }
 
     if (!skipIdleTime) {
@@ -144,9 +147,17 @@ function compareServer(server, old, neu, { skipIdleTime = false } = {}) {
     if (ta !== tb) add('biggest folder', m, ta || null, tb || null, 'informational', true);
   }
 
-  // Rendered rows
-  for (const block of ['processRows', 'dockerRows', 'diskRows']) {
-    if (old.dom[block] !== neu.dom[block]) add('rendered rows', block, old.dom[block], neu.dom[block], 'same count');
+  // Rendered rows: each board renders what it received (the content is compared above, by name).
+  const received = (side) => ({
+    processRows: side.state.gpuProcesses.length,
+    dockerRows: side.state.docker.containers.length,
+    diskRows: side.state.disk.length,
+  });
+  for (const [board, side] of [['old', old], ['new', neu]]) {
+    const want = received(side);
+    for (const block of Object.keys(want)) {
+      if (side.dom[block] !== want[block]) add('rendered rows', `${board}:${block}`, want[block], side.dom[block], 'rows rendered = rows received');
+    }
   }
   return out;
 }
@@ -158,7 +169,7 @@ const mismatchId = (m) => `${m.server}|${m.item}|${m.key}`;
 // seconds, so a gap between two instants is only real once it lasts minutes.
 const SLOW_POLL_MS = 5 * 60_000;
 const TEMPERATURE_PERSIST_MS = 2 * 60_000;
-const isSlow = (m) => ['container', 'disk', 'disk usage'].includes(m.item) || (m.item === 'rendered rows' && m.key !== 'processRows');
+const isSlow = (m) => ['container', 'disk', 'disk usage'].includes(m.item);
 
 // A mismatch counts only when it shows in consecutive rounds: two for live readings (the boards
 // sample at different instants, and processes come and go), two minutes for temperatures, and

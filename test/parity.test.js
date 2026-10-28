@@ -39,7 +39,7 @@ test('MIG partitions are compared one by one, pill and idle time included', () =
     cards: [{ label: 'GPU 7-1', pill: 'MIG' }, { label: 'GPU 7-2', pill: 'idle', idleText: pill7 }],
   });
   assert.deepEqual(compareServer('S', parts('01:00:00'), parts('01:00:08')), []);
-  assert.deepEqual(items(compareServer('S', parts('01:00:00'), parts('01:00:30'))), [['idle time', 'GPU 7-2', false]]);
+  assert.deepEqual(items(compareServer('S', parts('01:00:00'), parts('01:00:30'))), [['idle time', 'GPU 7-2', true]], 'informational');
   assert.deepEqual(compareServer('S', parts('01:00:00'), parts('01:00:30'), { skipIdleTime: true }), []);
 });
 
@@ -57,9 +57,10 @@ test('owners, processes, commands, containers and disks', () => {
     ['container', 'b', false],
     ['disk usage', '/data/x', false],
     ['biggest folder', '/data/x', true],
-    ['rendered rows', 'processRows', false],
-    ['rendered rows', 'dockerRows', false],
   ]);
+  const unrendered = side({ procs: [p(1, 'ana')] });
+  unrendered.dom.processRows = 0;
+  assert.deepEqual(items(compareServer('S', side({ procs: [p(1, 'ana')] }), unrendered)), [['rendered rows', 'new:processRows', false]]);
 });
 
 test('long commands are compared up to the truncation on both sides', () => {
@@ -81,12 +82,11 @@ test('only unexpected mismatches present in two consecutive rounds persist', () 
 
 test('container and disk mismatches must outlast a 5-minute poll before they count', () => {
   const c = { server: 'S', item: 'container', key: 'nvtop-exporter-1', expected: false };
-  const rows = { server: 'S', item: 'rendered rows', key: 'dockerRows', expected: false };
-  const procRows = { server: 'S', item: 'rendered rows', key: 'processRows', expected: false };
+  const rows = { server: 'S', item: 'rendered rows', key: 'new:dockerRows', expected: false };
   const rounds = (n, ...ms) => Array.from({ length: n }, () => ms);
-  assert.deepEqual(persistent(rounds(12, c, rows), { intervalMs: 30_000 }), []); // 5.5 min: one board still lagging
-  assert.deepEqual(persistent(rounds(13, c, rows), { intervalMs: 30_000 }), [c, rows]);
-  assert.deepEqual(persistent(rounds(2, procRows), { intervalMs: 30_000 }), [procRows]);
+  assert.deepEqual(persistent(rounds(12, c), { intervalMs: 30_000 }), []); // 5.5 min: one board still lagging
+  assert.deepEqual(persistent(rounds(13, c), { intervalMs: 30_000 }), [c]);
+  assert.deepEqual(persistent(rounds(2, rows), { intervalMs: 30_000 }), [rows], 'a board not rendering what it received is never lag');
 });
 
 test('a temperature gap counts only once it lasts two minutes', () => {
